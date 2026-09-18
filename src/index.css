@@ -1,0 +1,420 @@
+@font-face {
+  font-family: 'ContL';
+  src: url('./assets/fonts/contl.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+[data-locale='vi-VN'] {
+  --sans: 'ContL', 'Arya', Inter, ui-sans-serif, 'Segoe UI', Arial, sans-serif;
+}
+
+
+@property --theme-runtime-hue {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 82;
+}
+
+@keyframes launcher-hue-cycle {
+  from { --theme-runtime-hue: var(--theme-hue-start, 82); }
+  to { --theme-runtime-hue: calc(var(--theme-hue-start, 82) + 360); }
+}
+
+html[data-theme-dynamic='true'][data-theme-motion='full'],
+html[data-theme-dynamic='true'][data-theme-motion='system'] {
+  animation: launcher-hue-cycle var(--theme-cycle-duration, 97s) linear infinite;
+}
+
+html[data-theme-dynamic='true'][data-theme-motion='reduced'] {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme-dynamic='true'][data-theme-motion='system'] {
+    animation: none;
+  }
+}
+
+:root {
+  --theme-hue-start: 82;
+  --theme-runtime-hue: 82;
+  --theme-accent: oklch(73% 0.083 var(--theme-runtime-hue));
+  --theme-accent-strong: oklch(81% 0.078 var(--theme-runtime-hue));
+  --theme-accent-deep: oklch(56% 0.073 var(--theme-runtime-hue));
+  --theme-accent-hue: 82;
+  --theme-accent-chroma: 56;
+  --theme-intensity: 64;
+  --theme-contrast: 58;
+  --theme-cycle-duration: 97s;
+  --launcher-page-bg: color-mix(in oklab, #080b10 75%, var(--theme-accent-deep) 25%);
+  --launcher-page-bg-soft: color-mix(in oklab, #0b1016 71%, var(--theme-accent) 29%);
+  --launcher-sidebar-bg: color-mix(in oklab, #070a0e 69%, var(--theme-accent-deep) 31%);
+  --launcher-frame-bg: var(--launcher-sidebar-bg);
+  --launcher-corner-bg: var(--launcher-frame-bg);
+  --launcher-chrome-bg: color-mix(in oklab, #070a0e 72%, var(--theme-accent-deep) 28%);
+  --launcher-chrome-bg-strong: color-mix(in oklab, #05070a 76%, var(--theme-accent-deep) 24%);
+  --theme-card-bg: color-mix(in oklab, #10171c 64%, var(--theme-accent-deep) 36%);
+  --theme-card-bg-soft: color-mix(in oklab, #0d1318 70%, var(--theme-accent-deep) 30%);
+  --theme-elevated-bg: color-mix(in oklab, #182129 57%, var(--theme-accent) 43%);
+  --theme-control-bg: color-mix(in oklab, var(--theme-card-bg) 84%, var(--theme-accent) 16%);
+  --theme-control-hover-bg: color-mix(in oklab, var(--theme-card-bg) 76%, var(--theme-accent) 24%);
+  --theme-modal-bg: color-mix(in oklab, var(--theme-card-bg) 84%, var(--launcher-page-bg) 16%);
+  --theme-modal-bg-strong: color-mix(in oklab, var(--theme-elevated-bg) 58%, var(--theme-card-bg) 42%);
+  --theme-overlay-bg: color-mix(in oklab, rgba(2, 5, 8, 0.78) 78%, var(--theme-accent-deep) 22%);
+  --theme-accent-surface: color-mix(in oklab, transparent 84%, var(--theme-accent) 16%);
+  --theme-accent-surface-strong: color-mix(in oklab, transparent 72%, var(--theme-accent) 28%);
+  --bg: var(--launcher-chrome-bg);
+  --surface: var(--theme-card-bg);
+  --surface-strong: var(--theme-elevated-bg);
+  --theme-selected-bg: color-mix(in oklab, transparent 72%, var(--theme-accent) 28%);
+  --theme-hover-bg: color-mix(in oklab, transparent 85%, var(--theme-accent) 15%);
+  --theme-scrollbar: color-mix(in oklab, transparent 62%, var(--theme-accent) 38%);
+  --theme-glow-1: color-mix(in oklab, transparent 66%, var(--theme-accent) 34%);
+  --theme-glow-2: color-mix(in oklab, transparent 74%, var(--theme-accent-strong) 26%);
+  --theme-glow-3: color-mix(in oklab, transparent 79%, var(--theme-accent-deep) 21%);
+  --launcher-content-radius: 18px;
+  --launcher-content-soft-line: rgba(142, 163, 179, 0.055);
+  --line: color-mix(in oklab, transparent 78%, var(--theme-accent) 22%);
+  --line-strong: color-mix(in oklab, transparent 58%, var(--theme-accent-strong) 42%);
+  --text: #c7ced3;
+  --text-strong: #f3f4f2;
+  --muted: #8a949d;
+  --subtle: #68737c;
+  --gold: var(--theme-accent);
+  --gold-strong: var(--theme-accent-strong);
+  --primary-accent: var(--theme-accent);
+  --success: #69d66f;
+  --danger: #ef6f6c;
+  --mono: 'Cascadia Mono', 'Segoe UI Mono', Consolas, monospace;
+  --sans: 'Arya', Inter, ui-sans-serif, 'Segoe UI', Arial, sans-serif;
+
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.42;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body.is-overlay-window {
+  background: transparent !important;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+button,
+input {
+  letter-spacing: 0;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--gold-strong);
+  outline-offset: 2px;
+}
+
+::selection {
+  color: #11100d;
+  background: var(--gold-strong);
+}
+.launcher-update-banner {
+  flex-shrink: 0;
+  background: var(--primary-accent, #9a6a22);
+  color: white;
+  padding: 10px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9em;
+  z-index: 1000;
+}
+.launcher-update-banner .banner-content {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.launcher-update-banner button {
+  background: white;
+  color: var(--primary-accent, #6f4816);
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.launcher-update-banner button:hover {
+  opacity: 0.9;
+}
+.launcher-update-banner button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ====== Drive Library Picker Modal ====== */
+.drive-picker-modal {
+  background: var(--surface-glass, #1a1c24);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  width: 480px;
+  max-width: 96vw;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.7);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slide-up 0.22s ease;
+}
+
+.drive-picker-modal header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.drive-picker-modal header h2 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0;
+  color: #fff;
+}
+
+.drive-picker-modal header button {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.5);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+}
+.drive-picker-modal header button:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.08);
+}
+
+.drive-picker-hint {
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.45);
+  margin: 10px 20px 4px;
+}
+.drive-picker-hint code {
+  color: rgba(255,255,255,0.7);
+  background: rgba(255,255,255,0.06);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+}
+
+.drive-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.drive-entry {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(255,255,255,0.03);
+  border: 1.5px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  padding: 14px 16px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+  color: #fff;
+  width: 100%;
+}
+
+.drive-entry:hover {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.15);
+}
+
+.drive-entry.selected {
+  border-color: var(--primary-accent, #f0a500);
+  background: rgba(240,165,0,0.07);
+}
+
+.drive-icon {
+  color: rgba(255,255,255,0.5);
+  flex-shrink: 0;
+}
+.drive-entry.selected .drive-icon {
+  color: var(--primary-accent, #f0a500);
+}
+
+.drive-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.drive-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.drive-label strong {
+  font-size: 1rem;
+  font-weight: 700;
+}
+.drive-label span {
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.45);
+}
+
+.drive-space-bar {
+  height: 4px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.drive-space-fill {
+  height: 100%;
+  background: var(--primary-accent, #f0a500);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+.drive-entry.selected .drive-space-fill {
+  background: var(--primary-accent, #f0a500);
+}
+
+.drive-space-text {
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.4);
+  margin-bottom: 4px;
+}
+.drive-space-text.muted {
+  color: rgba(255,255,255,0.25);
+  font-style: italic;
+}
+
+.drive-path-preview {
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.28);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.drive-entry.selected .drive-path-preview {
+  color: rgba(240,165,0,0.55);
+}
+
+.drive-check {
+  color: var(--primary-accent, #f0a500);
+  flex-shrink: 0;
+}
+
+.drive-picker-modal footer {
+  padding: 12px 18px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  justify-content: flex-start;
+}
+
+.add-drive-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  color: rgba(255,255,255,0.7);
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.add-drive-btn:hover {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+  border-color: rgba(255,255,255,0.2);
+}
+
+/* Mobile App Responsive Styles */
+@media (max-width: 768px) {
+  .title-bar { display: none; }
+  .app-content { height: 100vh; padding: 10px; padding-bottom: 74px; }
+  .game-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+  .game-card-hero { height: 160px; }
+  .hero-glass { flex-direction: column; padding: 10px; }
+  .nav-sidebar { width: 60px; }
+  .nav-item-label { display: none; }
+}
+
+/* Detail Tabs */
+.detail-tabs {
+  display: flex;
+  gap: 16px;
+  margin-top: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0 16px;
+}
+
+.detail-tabs button {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  padding: 12px 16px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.2s;
+}
+
+.detail-tabs button:hover {
+  color: #fff;
+}
+
+.detail-tabs button.active {
+  color: #fff;
+}
+
+.detail-tabs button.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--primary-accent, #f0a500);
+}
+
+.chat-tab-container {
+  height: 600px;
+  max-height: 80vh;
+  margin-top: 24px;
+}
+

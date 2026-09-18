@@ -1,0 +1,188 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+target/
+**/target/
+src-tauri/target
+depot
+depot-*
+!backend-api/lua-shop/depot-archive.js
+!backend-api/test/depot-archive.test.js
+!.github/workflows/depot-archive.yml
+worker/node_modules
+worker/dist
+*.local
+__pycache__/
+*.py[cod]
+
+# Local working copies and generated handoff archives
+src/App_backup.tsx
+src/src.zip
+src-tauri/src-tauri.zip
+tools/tools.zip
+steam_api_utf8.json
+*.rar
+*.zip
+*_backup_*/
+native/steam_hook_backup_*/
+.dependency-downloads/
+src-tauri/resources/redist/*.exe
+src-tauri/resources/redist/*.msi
+src-tauri/resources/redist/*.zip
+src-tauri/resources/redist/*.download
+src-tauri/resources/redist/directx-jun2010/
+.playwright-mcp/
+playwright-report/
+test-results/
+launcher-shell-bg-check.png
+src-tauri/resources/tools/*_extracted/
+src-tauri/resources/tools/*.txt
+src-tauri/resources/tools/*.py
+src-tauri/resources/tools/*-main/
+src-tauri/resources/cloud_redirect/engine/2.6.4/
+
+# Secrets — never commit tokens (keep local only)
+src-tauri/huggingface-repos.json
+
+# 🔒 SECURITY: License system private keys (NEVER COMMIT!)
+src-tauri/private.key
+src-tauri/public.key
+src-tauri/license_*.json
+src-tauri/encrypted_config.bin
+src-tauri/test_license.json
+
+# 🔥 Backend Middleware: Environment configs
+backend-middleware/.env
+backend-middleware/target/
+backend-api/.env
+backend-api/node_modules/
+.env
+
+# Kiro history (may contain API tokens)
+history chat/
+history chats/
+
+# Firebase credentials (NEVER commit!)
+backend-api/render.env
+backend-api/render-env-*.txt
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+backend-api/.env.0xolemon.txt
+backend-api/.env.0xolemon1.txt
+backend-api/*.env.*.txt
+*.json
+
+# Exception cho các file json quan trọng để Github Actions (tauri-action dùng globby) có thể đọc được
+!package.json
+!package-lock.json
+!tsconfig.json
+!tsconfig.*.json
+!src-tauri/tauri.conf.json
+!src-tauri/dependency-bundle.json
+!src-tauri/src/resources/cloud-save/*.json
+!src-tauri/resources/managed-runtime/catalog.json
+!src-tauri/resources/emu/manifest.json
+!src-tauri/resources/emu/OXO_PATCH_PROVENANCE.json
+!src-tauri/resources/emu/SOURCE_PROVENANCE.json
+!latest.json
+
+src-tauri/0xoLemonCoreNative/.deps/
+src-tauri/0xoLemonCoreNative/build/
+native/.deps/
+native/steam_emu/third-party/
+CloudRedirect-new/
+src-tauri/DepotDownloaderMod-src/
+src-tauri/.gse-core-venv/
+
+# Frozen Python runtime files are release inputs, not Python bytecode/cache.
+!src-tauri/resources/gse-uc/embedded/gse_tools/**/*.pyd
+!src-tauri/resources/gse-uc/embedded/gse_tools/**/base_library.zip
+!src-tauri/resources/gse-uc/embedded/migrate_gse/**/*.pyd
+!src-tauri/resources/gse-uc/embedded/migrate_gse/**/base_library.zip
+!src-tauri/resources/gse-uc/embedded/*/component.json
+!src-tauri/resources/gse-uc/embedded/gse/steam_settings.EXAMPLE/*.json
+!src-tauri/resources/gse-uc/manifest.json
+!src-tauri/resources/gse-uc/launcher-asset-overrides.json
+!src-tauri/resources/gse-uc/bin/gse-core.build.json
+src-tauri/.gse-core-build*/
+src-tauri/.gse-core-spec*/
+downloading/gse-*/
+
+# Lua-only SteamKit source locks and reproducible runtime inputs.
+src-tauri/lua-steamkit/**/bin/
+src-tauri/lua-steamkit/**/obj/
+src-tauri/lua-steamkit/artifacts/
+!src-tauri/lua-steamkit/**/packages.lock.json
+!src-tauri/lua-steamkit/global.json
+!src-tauri/resources/lua-steamkit/*.json
+!src-tauri/resources/lua-steamkit/SteamKit2-source-*.zip
+!src-tauri/resources/lua-steamkit/LuaSteamKit-adapter-source.zip
+downloading/lua-workshop-test/
+
+# Depot archive source/test/workflow are not downloaded depot artifacts.
+!backend-api/lua-shop/depot-archive.js
+!backend-api/test/depot-archive.test.js
+!.github/workflows/depot-archive.yml
+downloading/depot-archive/
+
+# Local environment and secret files
+.env
+.env.*
+!.env.example
+
+# Local scratch, rescue, and temporary tool directories
+.tmp-*
+.perch/
+backup-src/
+rescue-*/
+hydra-main/
+testne/
+test_delta/
+src-tauri/0xoLemonCoreNative/build-safe/
+scripts/testne_session/
+src-tauri/resources/gse-uc/embedded/gse_tools/generate_emu_config/_OUTPUT/
+
+# PS1 file
+build-and-push.ps1
+# Local scratch / probe artifacts (never push; keep on disk)
+.bak/
+.probe-mirror.ps1
+downloading/
+patch_test/
+testnehubcap/
+src-tauri/0xoLemonCoreNative/tools/
+src-tauri/0xoLemonCoreNative/*.obj
+src-tauri/0xoLemonCoreNative/build_*stdout.txt
+# Native build output (compiled objects, CMake caches)
+native/overlay/build*/
+native/**/*.obj
+src/vendor/gse-uc-setup/**/*.obj
+src-tauri/resources/gse-uc/*.tmp
+# Release payload (heavy binaries) — shipped via GitHub Releases, not git.
+# Keeps this deploy repo light; re-add individual files here if needed.
+src-tauri/binaries/
+src-tauri/resources/gse-uc/bin/
+src-tauri/resources/gse-uc/embedded/
+src-tauri/resources/tools/
+src-tauri/resources/lua-steamkit/
+src-tauri/resources/steam_hooks/
+src-tauri/resources/cloud_redirect/engine/

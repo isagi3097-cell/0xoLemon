@@ -1,0 +1,416 @@
+import { useMemo } from 'react'
+import {
+  Archive,
+  CheckCircle2,
+  CircleAlert,
+  Clock3,
+  Download,
+  Folder,
+  Gauge,
+  HardDrive,
+  Loader2,
+  Pause,
+  Play,
+  ShieldCheck,
+  TerminalSquare,
+  Wrench,
+  X,
+} from 'lucide-react'
+import { enUS as t } from '../i18n/en-US'
+import type { JobJournal, JobStep, PhaseProgress } from '../types'
+import { formatBytes, formatDuration } from '../lib/format'
+import { useSmoothNumber } from '../hooks/useSmoothNumber'
+import { DownloadWaveCard } from './DownloadWaveCard'
+
+function lastJobError(job: JobJournal) {
+  const last = [...job.logs]
+    .reverse()
+    .find((log) => log.level.toLowerCase().includes('error') || log.level.toLowerCase().includes('warn'))
+  return last?.message || 'Transfer failed'
+}
+
+function jobLabel(job: JobJournal) {
+  if (job.kind === 'install') return `Install ${job.toVersion}`
+  if (job.kind === 'patch') return `Patch fix ${job.toVersion}`
+  if (job.kind === 'repair') return `Repair ${job.toVersion}`
+  return `Update ${job.fromVersion} → ${job.toVersion}`
+}
+
+function statusLabel(job: JobJournal, phaseProgress: PhaseProgress) {
+  if (job.status === 'failed') return lastJobError(job)
+  if (job.status === 'canceled') return 'Transfer canceled'
+  if (job.status === 'paused') return 'Paused — progress is safely saved'
+  if (job.status === 'committed') return 'Download complete'
+  if (job.status === 'planned') return 'Preparing download'
+  if (phaseProgress.isCommitting) return 'Finishing installation'
+  if (phaseProgress.isDownloading) return 'Downloading game files'
+  return phaseProgress.detail || phaseProgress.name
+}
+
+function transferState(job: JobJournal, phaseProgress: PhaseProgress) {
+  if (job.status === 'paused') return 'paused' as const
+  if (job.status === 'committed') return 'complete' as const
+  if (job.status === 'failed' || job.status === 'canceled') return 'failed' as const
+  if (job.status === 'planned') return 'queued' as const
+  if (phaseProgress.isDownloading) return 'downloading' as const
+  return phaseProgress.isCommitting ? 'verifying' as const : 'resolving' as const
+}
+
+function Artwork({ src, icon }: { src?: string; icon?: 'download' | 'patch' }) {
+  return (
+    <div className="transfer-artwork" aria-hidden="true">
+      {src ? <img src={src} alt="" loading="eager" decoding="async" /> : icon === 'patch' ? <Wrench size={22} /> : <Download size={22} />}
+      <span />
+    </div>
+  )
+}
+
+export function DownloadQueuePanel({
+  gameTitle,
+  gameArtwork,
+  layout = 'default',
+  installTarget,
+  job,
+  hasJob,
+  phaseProgress,
+  selectedVersion,
+  downloadSize,
+  isInstalled,
+  isRunning,
+  isPaused,
+  onOpenOptions,
+  onPause,
+  onCancel,
+  onResume,
+  isResuming = false,
+}: {
+  gameTitle: string
+  gameArtwork?: string
+  layout?: 'default' | 'storeGameDetail'
+  installTarget?: string
+  job: JobJournal
+  hasJob: boolean
+  progress: number
+  phaseProgress: PhaseProgress
+  selectedVersion: string
+  downloadSize: number
+  isInstalled: boolean
+  isRunning: boolean
+  isPaused: boolean
+  onOpenOptions: () => void
+  onPause: () => void
+  onCancel: () => void
+  onResume?: () => void
+  isResuming?: boolean
+}) {
+  const overallPercent = useSmoothNumber(phaseProgress.overallPercent)
+  const failed = job.status === 'failed'
+  const canceled = job.status === 'canceled'
+  const storeGameDetail = layout === 'storeGameDetail'
+
+  if (!hasJob) {
+    return (
+      <section className="panel transfer-overview-panel">
+        <header className="transfer-section-heading">
+          <div>
+            <span>Downloads</span>
+            <strong>No active transfers</strong>
+          </div>
+          <small>Queue is clear</small>
+        </header>
+        <div className="transfer-empty-state">
+          <div className="transfer-empty-icon">{isInstalled ? <CheckCircle2 size={22} /> : <Download size={22} />}</div>
+          <div>
+            <strong>{isInstalled ? 'Game is installed' : 'Ready when you are'}</strong>
+            <span>
+              {isInstalled
+                ? `${gameTitle} has no pending download or update task.`
+                : `${gameTitle} ${selectedVersion} requires approximately ${formatBytes(downloadSize)}.`}
+            </span>
+          </div>
+          {!isInstalled ? <button type="button" onClick={onOpenOptions}>{t.library.chooseInstall}</button> : null}
+        </div>
+      </section>
+    )
+  }
+
+  const currentRate = phaseProgress.isDownloading && phaseProgress.rateBytesPerSecond > 0
+    ? `${formatBytes(phaseProgress.rateBytesPerSecond)}/s`
+    : phaseProgress.isCommitting
+      ? 'Finalizing…'
+      : isPaused
+        ? 'Paused'
+        : '—'
+
+  return (
+    <section className={`panel transfer-overview-panel ${storeGameDetail ? 'transfer-overview-panel--store-detail' : ''}`}>
+      <header className="transfer-section-heading">
+        <div>
+          <span>Downloads</span>
+        </div>
+        <small>{statusLabel(job, phaseProgress)}</small>
+      </header>
+
+      <article className={`transfer-card ${storeGameDetail ? 'transfer-card--store-detail' : ''} ${failed ? 'is-failed' : ''} ${isPaused ? 'is-paused' : ''}`}>
+        <Artwork src={gameArtwork} icon={job.kind === 'patch' ? 'patch' : 'download'} />
+        <div className="transfer-card-main">
+          <div className="transfer-card-title-row">
+            <div className="transfer-title-info">
+              <strong>{gameTitle}</strong>
+              <div className="transfer-tags-line">
+                <span className="transfer-tag-version">{jobLabel(job)}</span>
+                <span className={`transfer-tag-status status-${transferState(job, phaseProgress)}`}>
+                  {statusLabel(job, phaseProgress)}
+                </span>
+                {installTarget ? (
+                  <span className="transfer-tag-path" title={installTarget}>
+                    <Folder size={11} />
+                    <span>{installTarget}</span>
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="transfer-header-controls">
+              <div className="transfer-percent-block">
+                <strong>{overallPercent.toFixed(1)}%</strong>
+                <span>overall</span>
+              </div>
+              <div className="transfer-card-actions">
+                {failed || canceled ? (
+                  <button
+                    className="transfer-action-primary"
+                    type="button"
+                    onClick={!isResuming ? (failed ? (onResume ?? onOpenOptions) : onOpenOptions) : undefined}
+                    disabled={isResuming}
+                  >
+                    {isResuming ? <Loader2 size={15} className="is-spinning" /> : <Play size={15} />}
+                    {isResuming ? 'Resuming…' : failed ? 'Resume' : 'Start again'}
+                  </button>
+                ) : isRunning ? (
+                  <>
+                    <button className="transfer-action-primary" type="button" onClick={onPause} disabled={phaseProgress.isCommitting}>
+                      {isPaused ? <Play size={15} fill="currentColor" /> : <Pause size={15} fill="currentColor" />}
+                      {phaseProgress.isCommitting ? 'Finishing' : isPaused ? 'Resume' : 'Pause'}
+                    </button>
+                    <button className="transfer-action-danger" type="button" onClick={onCancel} aria-label="Cancel download" disabled={phaseProgress.isCommitting}>
+                      <X size={16} />
+                    </button>
+                  </>
+                ) : (
+                  <span className="transfer-state-pill">{job.status}</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <DownloadWaveCard variant="storeTransfer" telemetry={{
+            transferId: `store:${job.id}`,
+            owner: 'store',
+            state: transferState(job, phaseProgress),
+            phaseLabel: statusLabel(job, phaseProgress),
+            bytesPerSecond: phaseProgress.isDownloading ? phaseProgress.rateBytesPerSecond : undefined,
+            downloadedBytes: phaseProgress.logicalBytesDone,
+            totalBytes: phaseProgress.logicalBytesTotal,
+            progress: phaseProgress.overallPercent,
+            etaSeconds: phaseProgress.etaSeconds ?? phaseProgress.applyEtaSeconds ?? undefined,
+            updatedAt: Date.parse(job.updatedAt),
+          }} />
+
+          <div className="transfer-metric-grid">
+            <div className="transfer-metric-item">
+              <Gauge size={14} className="metric-icon" />
+              <div className="metric-data">
+                <span className="metric-label">Network Speed</span>
+                <strong className="metric-value">{currentRate}</strong>
+              </div>
+            </div>
+            <div className="transfer-metric-item">
+              <Download size={14} className="metric-icon" />
+              <div className="metric-data">
+                <span className="metric-label">Transferred</span>
+                <strong className="metric-value">{formatBytes(phaseProgress.logicalBytesDone)} / {formatBytes(phaseProgress.logicalBytesTotal)}</strong>
+              </div>
+            </div>
+            <div className="transfer-metric-item">
+              <HardDrive size={14} className="metric-icon" />
+              <div className="metric-data">
+                <span className="metric-label">Disk Write</span>
+                <strong className="metric-value">{phaseProgress.applyRateBytesPerSecond > 0 ? `${formatBytes(phaseProgress.applyRateBytesPerSecond)}/s` : phaseProgress.isCommitting ? 'Writing…' : 'Idle'}</strong>
+              </div>
+            </div>
+            <div className="transfer-metric-item">
+              <Clock3 size={14} className="metric-icon" />
+              <div className="metric-data">
+                <span className="metric-label">Remaining</span>
+                <strong className="metric-value">{formatBytes(phaseProgress.remainingBytes)}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+  )
+}
+
+export function JobCenter({
+  gameTitle,
+  gameArtwork,
+  job,
+  hasJob,
+  phaseProgress,
+  onPause,
+  onCancel,
+  isPaused,
+  showControls = true,
+}: {
+  gameTitle?: string
+  gameArtwork?: string
+  job: JobJournal
+  hasJob: boolean
+  progress: number
+  phaseProgress: PhaseProgress
+  onPause: () => void
+  onCancel: () => void
+  isPaused: boolean
+  showControls?: boolean
+}) {
+  const displayOverall = useSmoothNumber(phaseProgress.overallPercent)
+  const phasePercent = useSmoothNumber(phaseProgress.percent)
+  const canControl = hasJob && !phaseProgress.isCommitting && ['running', 'downloading', 'assembling', 'paused'].includes(job.status)
+  const title = gameTitle || 'Selected game'
+  const etaCandidates = [phaseProgress.etaSeconds, phaseProgress.applyEtaSeconds].filter(
+    (value): value is number => value != null,
+  )
+  const completionEta = etaCandidates.length > 0 ? Math.max(...etaCandidates) : null
+
+  return (
+    <section className="panel transfer-job-panel">
+      <header className="transfer-job-header">
+        <Artwork src={gameArtwork} icon={job.kind === 'patch' ? 'patch' : 'download'} />
+        <div className="transfer-job-heading">
+          <span>{hasJob ? jobLabel(job) : t.jobs.noActiveJob}</span>
+          <strong>{title}</strong>
+          <small>{hasJob ? statusLabel(job, phaseProgress) : t.jobs.chooseVersion}</small>
+        </div>
+        <div className="transfer-overall-value">
+          <span>Overall</span>
+          <strong>{displayOverall.toFixed(1)}%</strong>
+        </div>
+      </header>
+
+      <div
+        className="transfer-primary-track is-overall"
+        role="progressbar"
+        aria-label="Overall job progress"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(displayOverall)}
+      >
+        <i style={{ width: `${displayOverall}%` }} />
+      </div>
+
+      <div className="transfer-job-metrics">
+        <div><Gauge size={16} /><span>Current phase</span><strong>{phaseProgress.name}</strong></div>
+        <div><Gauge size={16} /><span>Network</span><strong>{phaseProgress.rateBytesPerSecond > 0 ? `${formatBytes(phaseProgress.rateBytesPerSecond)}/s` : '—'}</strong></div>
+        <div><HardDrive size={16} /><span>Disk write</span><strong>{phaseProgress.applyRateBytesPerSecond > 0 ? `${formatBytes(phaseProgress.applyRateBytesPerSecond)}/s` : '—'}</strong></div>
+        <div><Clock3 size={16} /><span>ETA</span><strong>{formatDuration(completionEta)}</strong></div>
+      </div>
+
+      {phaseProgress.applyBytesTotal > 0 ? (
+        <div className="transfer-io-lanes is-job-center">
+          <IoLane label="Network" done={phaseProgress.logicalBytesDone} total={phaseProgress.logicalBytesTotal} percent={phaseProgress.networkPercent} rate={phaseProgress.rateBytesPerSecond} />
+          <IoLane label="Apply (durable)" done={phaseProgress.durableBytes} total={phaseProgress.applyBytesTotal} percent={phaseProgress.applyPercent} rate={phaseProgress.applyRateBytesPerSecond} />
+          <div className="transfer-current-file">
+            <span>{phaseProgress.isCommitting ? 'Safe transaction' : 'Current file'}</span>
+            <strong>{phaseProgress.isCommitting ? 'Pause and cancel are deferred until commit completes' : phaseProgress.currentFile || phaseProgress.pipelineVersion}</strong>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="transfer-phase-summary">
+        <div>
+          <span>Phase progress</span>
+          <strong>{phasePercent.toFixed(1)}%</strong>
+        </div>
+        <div className="transfer-secondary-track" role="progressbar" aria-label="Current phase progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(phasePercent)}>
+          <i style={{ width: `${phasePercent}%` }} />
+        </div>
+      </div>
+
+      <div className="transfer-timeline" aria-label="Job phases">
+        {job.steps.map((step, index) => <StepRow key={`${step.name}-${index}`} index={index + 1} step={step} />)}
+      </div>
+
+      {showControls ? (
+        <footer className="transfer-job-actions">
+          {canControl ? (
+            <>
+              <button className="transfer-action-primary" type="button" onClick={onPause}>
+                {isPaused ? <Play size={17} /> : <Pause size={17} />}
+                {isPaused ? t.jobs.resume : t.jobs.pause}
+              </button>
+              <button className="transfer-action-secondary" type="button" onClick={onCancel}>
+                <X size={17} />
+                {t.jobs.cancel}
+              </button>
+              <span className="transfer-resume-note">Progress is saved and can resume after launcher restart.</span>
+            </>
+          ) : (
+            <span className="transfer-resume-note">{phaseProgress.isCommitting ? 'Completing the safe transaction. Controls return after this boundary.' : 'No running download, assemble, or repair job.'}</span>
+          )}
+        </footer>
+      ) : null}
+    </section>
+  )
+}
+
+function IoLane({
+  label,
+  done,
+  total,
+  percent,
+  rate,
+}: {
+  label: string
+  done: number
+  total: number
+  percent: number
+  rate: number
+}) {
+  return (
+    <div className="transfer-io-lane">
+      <div>
+        <span>{label}</span>
+        <strong>{formatBytes(done)} / {formatBytes(total)}</strong>
+        <small>{rate > 0 ? `${formatBytes(rate)}/s` : '—'}</small>
+      </div>
+      <div className="transfer-secondary-track" role="progressbar" aria-label={`${label} progress`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percent)}>
+        <i style={{ width: `${percent}%` }} />
+      </div>
+    </div>
+  )
+}
+
+export function StepRow({ index, step }: { index: number; step: JobStep }) {
+  const displayProgress = useSmoothNumber(step.progress * 100)
+  const Icon = useMemo(() => {
+    if (step.status === 'completed') return CheckCircle2
+    if (step.status === 'failed') return CircleAlert
+    if (step.name.toLowerCase().includes('download') || step.name.toLowerCase().includes('stream')) return Download
+    if (step.name.toLowerCase().includes('verify')) return ShieldCheck
+    if (step.name.toLowerCase().includes('assemble') || step.name.toLowerCase().includes('commit')) return Archive
+    return TerminalSquare
+  }, [step.name, step.status])
+
+  return (
+    <article className={`transfer-step ${step.status}`}>
+      <div className="transfer-step-rail"><span><Icon size={16} /></span><i /></div>
+      <span className="transfer-step-index">{index}</span>
+      <div className="transfer-step-copy"><strong>{step.name}</strong><small>{step.detail}</small></div>
+      <div className="transfer-step-progress"><i style={{ width: `${displayProgress}%` }} /></div>
+      <strong className="transfer-step-percent">{Math.round(displayProgress)}%</strong>
+      <span className="transfer-step-retry">{step.retryCount > 0 ? `${step.retryCount} retry` : '—'}</span>
+    </article>
+  )
+}

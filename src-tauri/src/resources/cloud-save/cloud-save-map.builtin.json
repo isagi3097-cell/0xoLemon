@@ -1,0 +1,36 @@
+{
+  "$schema": "./cloud-save-map.schema.json",
+  "schemaVersion": 1,
+  "mapVersion": "builtin-fallback",
+  "platform": "windows",
+  "minimumLauncherVersion": "0.1.1",
+  "publishedAt": "2026-08-12T00:00:00Z",
+  "expiresAt": "2099-01-01T00:00:00Z",
+  "defaults": {
+    "syncMode": "automatic",
+    "syncBeforeLaunch": true,
+    "syncAfterExit": true,
+    "followReparsePoints": false,
+    "excludeWins": true,
+    "limits": {
+      "maxFiles": 10000,
+      "maxTotalBytes": 5368709120,
+      "maxFileBytes": 2147483648
+    },
+    "stability": {
+      "settleTimeMs": 2000,
+      "pollIntervalMs": 500,
+      "maxWaitMs": 30000
+    },
+    "retention": {
+      "recent": 10,
+      "dailyDays": 7,
+      "weeklyWeeks": 4,
+      "conflictDays": 90
+    },
+    "migration": {
+      "legacyRetentionDays": 30
+    }
+  },
+  "games": {}
+}

@@ -1,0 +1,4945 @@
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { doc, setDoc, increment } from 'firebase/firestore'
+import { db } from './firebase'
+import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
+import { getVersion } from '@tauri-apps/api/app'
+import { open } from '@tauri-apps/plugin-dialog'
+import { openUrl } from '@tauri-apps/plugin-opener'
+import {
+  isPermissionGranted,
+  onAction as onNativeNotificationAction,
+  registerActionTypes,
+  requestPermission,
+  sendNotification,
+} from '@tauri-apps/plugin-notification'
+import { MotionConfig, AnimatePresence } from 'motion/react'
+import { CircleAlert, Download, FolderSearch, Heart, X } from 'lucide-react'
+import packageMetadata from '../package.json'
+import './App.css'
+import './premium.css'
+import type {
+  AssetBlob,
+  ClearCacheReport,
+  CloudSaveRoot,
+  CloudSaveStatus,
+  DiscordAuthStatus,
+  DownloadTelemetry,
+  GameCatalog,
+  GameDetail,
+  GameInstallState,
+  InstallDiscoveryReport,
+  GameRuntimeState,
+  GameSummary,
+  GameVersionInfo,
+  JobJournal,
+  LaunchReport,
+  LauncherUpdateInfo,
+  LauncherUpdateProgress,
+  LauncherSettings,
+  LaunchSplashState,
+  NewNotification,
+  NotificationAction,
+  NotificationRecord,
+  PushNotificationResult,
+  ResolvedGameLaunchConfig,
+  ShortcutLaunchPayload,
+  Snapshot,
+  SteamEnvironmentInfo,
+  TabId,
+  UninstallReport,
+  VerifyInstallReport,
+  VerifyProgressPayload,
+  VerifyUiStatus,
+} from './types'
+import installCompleteSoundUrl from './assets/sounds/desktop_toast_default.wav?url'
+import donateImage from './assets/donate/donate.png'
+import { DEFAULT_GAME_ID, DEFAULT_STORE_ROOT, fallbackCatalog, fallbackInstall, fallbackSnapshot, gameFolderName, installMetadataForStoreRoot } from './lib/installPaths'
+import { assetUrlForId, collectAssetIds, contentServiceLabel, downloadPathForInstallRoot, fallbackDetailFromSummary, fetchWebAssetUrl, firstMediaUrl, isTauriRuntime, versionOptions } from './lib/gameMeta'
+import { createIdleJob, getPhaseProgress } from './lib/jobProgress'
+import { isAllowedDirectImageUrl } from './lib/remoteAssets'
+import { formatBytes } from './lib/format'
+import { gameHasTag } from './lib/gameTags'
+import { versionsEquivalent } from './lib/version'
+import { backupContentErrorMessage } from './lib/backupContentError'
+import { DEFAULT_LAUNCHER_PREFERENCES, loadLauncherPreferences, saveLauncherPreferences, type LauncherPreferences } from './lib/preferences'
+import { loadLauncherNavigation, useLauncherNavigation } from './lib/launcherNavigation'
+import { useLauncherLibraryLayout } from './hooks/useLauncherLibraryLayout'
+import { collectOwnedGameIds, filterCatalogByOwnedGameIds } from './lib/libraryOwnership'
+import { applyLauncherTheme } from './lib/theme'
+import type { UiThemeId } from './lib/uiThemes'
+import { enterNativeBigPictureFullscreen, restoreNativeBigPictureFullscreen, type BigPictureFullscreenSession } from './lib/bigPictureMode'
+import { subscribeAchievementEvents } from './lib/achievementEventBus'
+import { AchievementToastOverlay } from './components/AchievementToast'
+import { CustomTitleBar } from './components/CustomTitleBar'
+import { DefenderExclusionDialog } from './components/DefenderExclusionDialog'
+import { DiscordAccessGate } from './components/DiscordAccessGate'
+import { HelpCenter } from './components/HelpSystem'
+import { InstallRecoveryDialog } from './components/InstallRecoveryDialog'
+import { DriveLibraryPickerModal, InstallOptionsDialog } from './components/install'
+import { FilePickerModal } from './components/FilePickerModal'
+import { IntroScreen } from './components/IntroScreen'
+import { LaunchOptionsModal } from './components/LaunchOptionsModal'
+import { LaunchSplash } from './components/LaunchSplash'
+import { OperationHero } from './components/OperationHero'
+import { ConnectedThemeShellHost } from './themes/ConnectedThemeShellHost'
+import { NotificationToasts } from './components/NotificationCenter'
+import { NvidiaToast } from './components/NvidiaToast'
+import { Onboarding } from './components/Onboarding'
+import { TransferDock } from './components/TransferDock'
+import { UpdateBanner, UpdateCenter } from './components/UpdateCenter'
+import { useLocale } from './context/locale'
+import { GlobalAudioProvider, useGlobalAudio } from './context/GlobalAudioContext'
+
+const ActiveView = lazy(() => import('./components/ActiveView').then((module) => ({ default: module.ActiveView })))
+const ChangelogModal = lazy(() => import('./components/ChangelogModal').then((module) => ({ default: module.ChangelogModal })))
+const BigPictureView = lazy(() => import('./components/BigPictureView').then((module) => ({ default: module.BigPictureView })))
+const CloudSavesOverview = lazy(() => import('./components/CloudSavesOverview').then((module) => ({ default: module.CloudSavesOverview })))
+const HomeView = lazy(() => import('./components/HomeView').then((module) => ({ default: module.HomeView })))
+const DefaultHomeView = lazy(() => import('./themes/default/DefaultHomeView'))
+const ThemeSettingsHost = lazy(() => import('./themes/ThemeSettingsHost').then((module) => ({ default: module.ThemeSettingsHost })))
+const SocialHubView = lazy(() => import('./social/SocialPrototype').then((module) => ({ default: module.SocialHubView })))
+const SocialPrototypeLayer = lazy(() => import('./social/SocialPrototype').then((module) => ({ default: module.SocialPrototypeLayer })))
+const GseUcStandaloneView = lazy(() => import('./components/GseUcStandaloneView').then((module) => ({ default: module.GseUcStandaloneView })))
+const DepotDownloaderView = lazy(() => import('./components/DepotDownloaderView').then((module) => ({ default: module.DepotDownloaderView })))
+
+function ViewChunkFallback() {
+  return (
+    <div className="view-chunk-skeleton" aria-hidden="true">
+      <div className="view-chunk-skeleton-title" />
+      <div className="view-chunk-skeleton-toolbar" />
+      <div className="view-chunk-skeleton-grid">
+        {Array.from({ length: 8 }, (_, index) => <div key={index} className="view-chunk-skeleton-card" />)}
+      </div>
+    </div>
+  )
+}
+
+function AppAudioConnector({
+  onSelectGame,
+}: {
+  onSelectGame: (gameId: string) => void
+}) {
+  const { registerNavigateCallback } = useGlobalAudio()
+  useEffect(() => {
+    registerNavigateCallback((gameId) => {
+      onSelectGame(gameId)
+    })
+  }, [registerNavigateCallback, onSelectGame])
+  return null
+}
+
+const initialLauncherPreferences = loadLauncherPreferences()
+const sessionUiTheme = initialLauncherPreferences.uiTheme
+applyLauncherTheme({ ...initialLauncherPreferences, uiTheme: 'default' })
+const emptyCatalog: GameCatalog = { defaultLocale: 'en-US', games: [] }
+const TAB_IDS = ["What's New!", 'Home', 'Library', 'Store', 'Backup Game', 'Downloads', 'Social', 'Lua Shop', 'Lua Installer', 'GSE / UC Setup', 'CloudRedirect', 'Translations', 'Offline Activation', 'Settings', 'Tools', 'Cache'] as const satisfies readonly TabId[]
+
+function isTabId(value: string): value is TabId {
+  return (TAB_IDS as readonly string[]).includes(value)
+}
+const initialLauncherNavigation = loadLauncherNavigation(initialLauncherPreferences.startupPage, isTabId)
+const initialDiscordAuthStatus: DiscordAuthStatus = {
+  state: isTauriRuntime() ? 'checking' : 'notConfigured',
+  configured: false,
+  message: isTauriRuntime()
+    ? 'Checking your Discord access...'
+    : 'Discord access verification requires the desktop launcher.',
+  user: null,
+  guildId: '1492076309323714570',
+  guildName: null,
+  guildInvite: 'https://discord.gg/7ZXdTUVsJE',
+  eligibleAt: null,
+}
+type CatalogLoadState = 'loading' | 'ready' | 'stale' | 'error'
+const defaultLauncherSettings: LauncherSettings = {
+  defaultLibrary: DEFAULT_STORE_ROOT,
+  downloadWorkers: 8,
+  downloadRetries: 5,
+  packRangeMb: 16,
+  keepChunkCache: true,
+  notificationsEnabled: true,
+  autoVerifyAfterInstall: false,
+  downloadProfile: 'auto',
+  downloadQueueMb: 192,
+  directToStaging: true,
+  cloudSaveRoot: '',
+  gameUpdateMode: 'manual',
+  gameUpdateScheduleStart: '02:00',
+  gameUpdateScheduleEnd: '06:00',
+  depotHfRepoId: '',
+  gameTurbo: 'ask',
+}
+
+import { useBackendGameTags } from './hooks/useBackendGameTags'
+import { useBackendVersionTags } from './hooks/useBackendVersionTags'
+import { useBackendCatalog } from './hooks/useBackendCatalog'
+import { useSteamAppIds } from './hooks/useSteamAppIds'
+import { useFirestoreDetail } from './hooks/useFirestoreDetail'
+import { useBackendAssets } from './hooks/useBackendAssets'
+import { useScrollReveal } from './hooks/useScrollReveal'
+import { usePullToRefresh } from './hooks/usePullToRefresh'
+import { useDefenderExclusion } from './hooks/useDefenderExclusion'
+// Firestore fallback hooks
+import { useRealtimeGameTags } from './hooks/useRealtimeGameTags'
+import { useRealtimeAssets } from './hooks/useRealtimeAssets'
+import { useLegacyCatalog } from './hooks/useFirestoreCatalog'
+import { CatalogStatusBanner } from './components/CatalogStatusBanner'
+import { useGameStats } from './hooks/useGameStats'
+import { useOnlinePresence } from './hooks/useOnlinePresence'
+import { useCloudSaveMap } from './hooks/useCloudSaveMap'
+import { GameTurboModal } from './components/GameTurboModal'
+import { NoInternetView } from './components/NoInternetView'
+import { SaveCloseGuardModal } from './components/SaveCloseGuardModal'
+import { SocialPrototypeProvider } from './social/SocialProvider'
+import { recordSocialStats } from './social/socialApi'
+
+export default function App() {
+  const { t } = useLocale()
+  useEffect(() => {
+    // Smooth scrolling is handled by CSS scroll-behavior: smooth on .workspace.
+    // We keep a minimal __lenis stub so modal code (lenis.stop/start) doesn't crash.
+    const workspace = document.querySelector<HTMLElement>('.workspace')
+    const stub = {
+      stop: () => { if (workspace) workspace.style.overflow = 'hidden' },
+      start: () => { if (workspace) workspace.style.overflow = '' },
+    }
+      ; (window as unknown as Record<string, unknown>).__lenis = stub
+    return () => {
+      ; (window as unknown as Record<string, unknown>).__lenis = null
+    }
+  }, [])
+
+
+
+  // Google Antigravityâ€“style scroll reveal (fade+slide on scroll into view)
+  useScrollReveal()
+
+
+  // Pull-to-refresh: kĂ©o xuá»‘ng khi Ä‘ang á»Ÿ Ä‘áº§u trang Ä‘á»ƒ reload
+  const [ptrProgress] = useState(0)
+  const [ptrRefreshing] = useState(false)
+  const bodyRef = useRef<HTMLElement | null>(null)
+  useEffect(() => { bodyRef.current = document.body }, [])
+
+  // Disabled per user request
+  // const handleRefresh = useCallback(() => {
+  //   // Reset states before reload to prevent stuck loading
+  //   setPtrRefreshing(false)
+  //   setPtrProgress(0)
+  //
+  //   // Delay to ensure state reset and touch events completely finished, preventing STATUS_ACCESS_VIOLATION
+  //   setTimeout(() => {
+  //     if (isTauriRuntime()) {
+  //       // window.location.href is safer than location.reload() in Tauri WebView2 to prevent access violations
+  //       window.location.href = window.location.href.split('#')[0]
+  //     } else {
+  //       window.location.reload()
+  //     }
+  //   }, 400)
+  // }, [])
+
+  usePullToRefresh(bodyRef, {
+    threshold: 160,
+    onProgress: () => {
+      // Disabled pull to refresh per user request
+      // setPtrProgress(p)
+      // if (p >= 1 && !ptrRefreshing) {
+      //   setPtrRefreshing(true)
+      // }
+    },
+    onRefresh: () => {
+      // Disabled
+      // handleRefresh()
+    },
+  })
+
+  // Backend hooks (primary, cached 1h on Render)
+  useBackendGameTags()
+  const backendVersionTagVersion = useBackendVersionTags()
+  const backendAssetVersion = useBackendAssets()
+  const [catalogGeneration, setCatalogGeneration] = useState(0)
+  const backendResource = useBackendCatalog(backendAssetVersion + backendVersionTagVersion, catalogGeneration)
+  const backendCatalog = backendResource.data
+
+  // Firestore hooks (fallback, realtime)
+  useRealtimeGameTags()
+  const firestoreAssetVersion = useRealtimeAssets()
+  const legacyResource = useLegacyCatalog(firestoreAssetVersion + backendVersionTagVersion, catalogGeneration)
+  const firestoreCatalog = legacyResource.data
+  useSteamAppIds()
+  useGameStats()
+  useCloudSaveMap()
+
+  const defenderExclusion = useDefenderExclusion()
+  const [snapshot, setSnapshot] = useState<Snapshot>(fallbackSnapshot)
+  const [job, setJob] = useState<JobJournal | null>(fallbackSnapshot.lastJob)
+  const [installPath, setInstallPath] = useState('')
+  const [scanStatus, setScanStatus] = useState('No install found')
+  const [, setHasScanned] = useState(false)
+  const [preferences, setPreferences] = useState<LauncherPreferences>(initialLauncherPreferences)
+  const [launcherSettings, setLauncherSettings] = useState<LauncherSettings>(defaultLauncherSettings)
+  const navigation = useLauncherNavigation(initialLauncherNavigation)
+  const {
+    layout: launcherLibraryLayout,
+    addGameIds: addLauncherLibraryGameIds,
+    removeGameIds: removeLauncherLibraryGameIds,
+  } = useLauncherLibraryLayout()
+  const {
+    activeTab,
+    selectedGameId,
+    navigate: setActiveTab,
+    setSelectedGameId,
+    goBack,
+    goForward,
+    canGoBack,
+    canGoForward,
+  } = navigation
+  const [isOnline, setIsOnline] = useState(navigator.onLine)
+  const [offlineModeEnabled, setOfflineModeEnabled] = useState(false)
+  const [selectedVersion, setSelectedVersion] = useState('')
+  const [showInstallOptions, setShowInstallOptions] = useState(false)
+  // Guards the install dialog against being closed by the game-switch reset
+  // effect while the user-initiated open is still awaiting its preflight.
+  const installOptionsOpenRequestRef = useRef(0)
+  /** When non-null, only these file paths will be downloaded (torrent-style). */
+  const [fileFilter, setFileFilter] = useState<string[] | null>(null)
+  const [showFilePicker, setShowFilePicker] = useState(false)
+  const [isStartingDownload, setIsStartingDownload] = useState(false)
+  const [installRoot, setInstallRoot] = useState(`${initialLauncherPreferences.defaultLibraryRoot}\\common\\007 First Light`)
+  const [catalog, setCatalog] = useState<GameCatalog>(() => (isTauriRuntime() ? emptyCatalog : fallbackCatalog))
+  const [depotRandomGames, setDepotRandomGames] = useState<Array<{ id: string; title: string }>>([])
+  const [selectedDepotAppId, setSelectedDepotAppId] = useState<number | null>(null)
+  const [catalogLoadState, setCatalogLoadState] = useState<CatalogLoadState>(
+    isTauriRuntime() ? 'loading' : 'ready',
+  )
+
+  useEffect(() => {
+    const fallbackStoreGames = [
+      { id: '1245620', title: 'ELDEN RING' },
+      { id: '2358720', title: 'Black Myth: Wukong' },
+      { id: '1091500', title: 'Cyberpunk 2077' },
+      { id: '1593500', title: 'God of War' },
+      { id: '1817070', title: "Marvel's Spider-Man Remastered" },
+      { id: '1174180', title: 'Red Dead Redemption 2' },
+      { id: '814380', title: 'Sekiro: Shadows Die Twice' },
+      { id: '2050650', title: 'Resident Evil 4' },
+    ]
+    invoke<Array<{ appid: number; title: string }>>('depot_downloader_get_catalog')
+      .then((games) => {
+        if (games && games.length > 0) {
+          setDepotRandomGames(games.map((game) => ({ id: String(game.appid), title: game.title })))
+        } else {
+          setDepotRandomGames(fallbackStoreGames)
+        }
+      })
+      .catch(() => setDepotRandomGames(fallbackStoreGames))
+  }, [])
+  const [detail, setDetail] = useState<GameDetail | null>(null)
+  const [bigPicturePhase, setBigPicturePhase] = useState<'closed' | 'entering' | 'active' | 'exiting'>('closed')
+  const bigPicturePhaseRef = useRef<'closed' | 'entering' | 'active' | 'exiting'>('closed')
+  const isBigPictureMode = bigPicturePhase !== 'closed'
+  const bigPictureFullscreenSessionRef = useRef<BigPictureFullscreenSession | null>(null)
+  const bigPictureTransitionRef = useRef(0)
+  const [assetUrls, setAssetUrls] = useState<Record<string, string>>({})
+  const assetUrlsRef = useRef<Record<string, string>>({})
+  const catalogRef = useRef<GameCatalog>(catalog)
+  const assetRequestRef = useRef<Set<string>>(new Set())
+  const assetDelaySlotRef = useRef(0)
+  const [installStates, setInstallStates] = useState<Record<string, GameInstallState>>({})
+  const [installDiscoveryReport, setInstallDiscoveryReport] = useState<InstallDiscoveryReport | null>(null)
+  const [installDiscoveryBusy, setInstallDiscoveryBusy] = useState(false)
+  const [showInstallRecovery, setShowInstallRecovery] = useState(false)
+  const [showLocateLibraryPrompt, setShowLocateLibraryPrompt] = useState(false)
+  const installDiscoveryRequestRef = useRef(0)
+  const installDiscoveryCatalogRef = useRef('')
+  const [pendingPatches, setPendingPatches] = useState<Record<string, string>>({})
+  const latestJobRef = useRef<JobJournal | null>(job)
+  const preferencesRef = useRef<LauncherPreferences>(preferences)
+  const installCompleteAudioRef = useRef<HTMLAudioElement | null>(null)
+  const installCompleteSoundJobsRef = useRef<Set<string>>(new Set())
+  const audibleInstallJobIdsRef = useRef<Set<string>>(new Set())
+  const pendingCloudLaunchRef = useRef<{ optionId?: string; optionTitle?: string } | null>(null)
+  const downloadRateWindowRef = useRef<{
+    jobId: string
+    points: Array<{ bytesDone: number; applyBytesDone: number; at: number }>
+  } | null>(null)
+  const downloadTelemetryJobRef = useRef<string | null>(null)
+  const canceledJobIdRef = useRef<string | null>(null)
+  const autoResumeInFlightRef = useRef(false)
+  const autoResumeJobIdRef = useRef<string | null>(null)
+  const offlineInterruptedJobIdRef = useRef<string | null>(null)
+  const selectedGameIdRef = useRef<string | null>(selectedGameId)
+  const versionPlanSequenceRef = useRef(0)
+  const versionPlanTimerRef = useRef<number | null>(null)
+  const [downloadRate, setDownloadRate] = useState(0)
+  const [applyRate, setApplyRate] = useState(0)
+  const [verifyStatus, setVerifyStatus] = useState<VerifyUiStatus | null>(null)
+  const [launchSplash, setLaunchSplash] = useState<LaunchSplashState | null>(null)
+  const [showIntro, setShowIntro] = useState(true)
+  // introExiting: true when exit animation starts (gate should be visible)
+  const [introExiting, setIntroExiting] = useState(false)
+  const [launchOptions, setLaunchOptions] = useState<ResolvedGameLaunchConfig | null>(null)
+  const [launcherUpdate, setLauncherUpdate] = useState<LauncherUpdateInfo | null>(null)
+  const [launcherUpdateProgress, setLauncherUpdateProgress] = useState<LauncherUpdateProgress | null>(null)
+  const [launcherUpdateSpeed, setLauncherUpdateSpeed] = useState(0)
+  const [launcherUpdateEta, setLauncherUpdateEta] = useState<number | null>(null)
+  const [showUpdateCenter, setShowUpdateCenter] = useState(false)
+  const [updateSkipped, setUpdateSkipped] = useState(false)
+  const [settingsUpdateStatus, setSettingsUpdateStatus] = useState<string | null>(null)
+  const [showDrivePicker, setShowDrivePicker] = useState(false)
+  const [showUninstallConfirm, setShowUninstallConfirm] = useState(false)
+  const [playingGames, setPlayingGames] = useState<Record<string, boolean>>({})
+  const [showNvidiaToast, setShowNvidiaToast] = useState(false)
+  const nvidiaToastTimersRef = useRef<number[]>([])
+  const [showSpacewarPrompt, setShowSpacewarPrompt] = useState(false)
+  const [spacewarDownloading, setSpacewarDownloading] = useState(false)
+  const [showSteamRecommendation, setShowSteamRecommendation] = useState(false)
+  const [steamOpening, setSteamOpening] = useState(false)
+  const [steamEnvironment, setSteamEnvironment] = useState<SteamEnvironmentInfo | null>(null)
+  const [steamSettingsStatus, setSteamSettingsStatus] = useState<string | null>(null)
+  const [cloudSaveStatus, setCloudSaveStatus] = useState<CloudSaveStatus | null>(null)
+  const [cloudSaveBusy, setCloudSaveBusy] = useState(false)
+  const [cloudLaunchBlocked, setCloudLaunchBlocked] = useState(false)
+  const [runtimeStates, setRuntimeStates] = useState<GameRuntimeState[]>([])
+  const [notifications, setNotifications] = useState<NotificationRecord[]>([])
+  const [toastNotifications, setToastNotifications] = useState<NotificationRecord[]>([])
+  const [notificationOpen, setNotificationOpen] = useState(false)
+  const [showDonate, setShowDonate] = useState(false)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [discordAuth, setDiscordAuth] = useState<DiscordAuthStatus>(initialDiscordAuthStatus)
+  const [discordAuthBusy, setDiscordAuthBusy] = useState(false)
+
+  // Online presence counter (hiá»‡n sá»‘ ngÆ°á»i dĂ¹ng online trong title bar)
+  const { onlineCount } = useOnlinePresence(
+    discordAuth.state === 'authorized' ? discordAuth.user?.id : null
+  )
+  const [turboGameToAsk, setTurboGameToAsk] = useState<GameSummary | null>(null)
+  const [luaModeEnabled, setLuaModeEnabled] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+
+  // Block shell-only features while intro or the Discord gate owns the screen.
+  const hasLauncherAccess = offlineModeEnabled || discordAuth.state === 'authorized'
+  const isBlockedState = showIntro || !hasLauncherAccess
+  const requestedShellTheme: UiThemeId = hasLauncherAccess && !showIntro ? sessionUiTheme : 'default'
+  const [renderedShellTheme, setRenderedShellTheme] = useState<UiThemeId>('default')
+  const [themeRecovery, setThemeRecovery] = useState<{ theme: UiThemeId; message: string } | null>(null)
+  const [cacheBusy, setCacheBusy] = useState(false)
+  const [appVersion, setAppVersion] = useState(packageMetadata.version)
+  const [showWhatsNewModal, setShowWhatsNewModal] = useState(false)
+  const [helpCenterOpen, setHelpCenterOpen] = useState(false)
+  const [onboardingGateReady, setOnboardingGateReady] = useState(false)
+  const launcherUpdateRateRef = useRef<Array<{ bytes: number; at: number }>>([])
+  const pendingHomeLaunchRef = useRef<string | null>(null)
+  const playingGamesRef = useRef<Record<string, boolean>>({})
+  const socialPlaySessionsRef = useRef<Partial<Record<string, { requestId: string; startedAt: string }>>>({})
+  const lastDiscordCheckRef = useRef(0)
+  const [systemReducedMotion, setSystemReducedMotion] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  )
+  // Library locations the user has added (persisted to localStorage)
+  const [libraries, setLibraries] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('0xo_libraries')
+      return saved ? JSON.parse(saved) : ['E:\\', 'C:\\']
+    } catch {
+      return ['E:\\', 'C:\\']
+    }
+  })
+
+  useEffect(() => {
+    assetUrlsRef.current = assetUrls
+  }, [assetUrls])
+
+  useEffect(() => () => {
+    if (versionPlanTimerRef.current !== null) {
+      window.clearTimeout(versionPlanTimerRef.current)
+    }
+  }, [])
+
+  // Show window (small, centered) as soon as app mounts â€” before auth check
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    import('@tauri-apps/api/window').then((m) => {
+      m.getCurrentWindow().show().catch(() => { })
+    })
+  }, [])
+
+  useEffect(() => {
+    catalogRef.current = catalog
+  }, [catalog])
+
+  useEffect(() => {
+    selectedGameIdRef.current = selectedGameId
+  }, [selectedGameId])
+
+  useEffect(() => {
+    preferencesRef.current = preferences
+    saveLauncherPreferences(preferences)
+    applyLauncherTheme({
+      ...preferences,
+      uiTheme: requestedShellTheme === 'default' ? 'default' : renderedShellTheme,
+    })
+  }, [preferences, renderedShellTheme, requestedShellTheme])
+
+  useEffect(() => {
+    const handleThemePackageError = (event: Event) => {
+      const detail = (event as CustomEvent<{ theme?: UiThemeId; message?: string }>).detail
+      const failedTheme = detail?.theme ?? requestedShellTheme
+      setRenderedShellTheme('default')
+      setThemeRecovery({
+        theme: failedTheme,
+        message: detail?.message || 'The selected theme package could not be loaded.',
+      })
+    }
+    window.addEventListener('0xo-theme-package-error', handleThemePackageError)
+    return () => window.removeEventListener('0xo-theme-package-error', handleThemePackageError)
+  }, [requestedShellTheme])
+
+  useEffect(() => {
+    playingGamesRef.current = playingGames
+  }, [playingGames])
+
+  const socialActiveGame = useMemo(() => {
+    const gameId = Object.keys(playingGames).find((id) => playingGames[id])
+    if (!gameId) return null
+    const game = catalog.games.find((entry) => entry.id === gameId)
+    return { gameId, label: game?.title || gameId }
+  }, [catalog.games, playingGames])
+
+  // game-started / game-exited merged into launcher://game-started/launcher://game-exited below
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || isTauriRuntime()) return
+    const preview = new URLSearchParams(window.location.search).get('preview')
+    if (preview !== 'update') return
+    const info: LauncherUpdateInfo = {
+      version: `${packageMetadata.version}-preview`,
+      notes: 'Premium Home dashboard\nAccurate Update Center phases\nNotification history and Windows notifications',
+      publishedAt: new Date().toISOString(),
+    }
+    queueMicrotask(() => {
+      setLauncherUpdate(info)
+      setLauncherUpdateProgress({
+        version: info.version,
+        phase: 'downloading',
+        downloadedBytes: 128 * 1024 * 1024,
+        totalBytes: 272 * 1024 * 1024,
+        timestamp: new Date().toISOString(),
+        error: null,
+      })
+      setLauncherUpdateSpeed(12.4 * 1024 * 1024)
+      setLauncherUpdateEta(12)
+      setShowUpdateCenter(true)
+    })
+  }, [])
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const update = () => setSystemReducedMotion(media.matches)
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
+
+  // Listen for navigation events from CloudRedirect
+  useEffect(() => {
+    const handleNavigation = (e: Event) => {
+      const customEvent = e as CustomEvent<string>
+      const tabId = customEvent.detail as TabId
+      setActiveTab(tabId)
+    }
+    window.addEventListener('navigate-to-tab', handleNavigation)
+    return () => window.removeEventListener('navigate-to-tab', handleNavigation)
+  }, [])
+
+  const reducedMotion =
+    preferences.motionMode === 'reduced' ||
+    (preferences.motionMode === 'system' && systemReducedMotion)
+  const disableAllEffects =
+    preferences.motionMode === 'reduced' &&
+    !preferences.glassEffects &&
+    !preferences.scrollEffects &&
+    !preferences.hoverHints &&
+    !preferences.dynamicTheme &&
+    !preferences.playInstallCompleteSound
+
+  const onboardingMayStart =
+    !preferences.onboardingCompleted &&
+    !showIntro &&
+    introExiting &&
+    hasLauncherAccess
+  const shouldShowOnboarding =
+    onboardingMayStart &&
+    activeTab === 'Home' &&
+    onboardingGateReady
+
+  useEffect(() => {
+    if (!onboardingMayStart || activeTab === 'Home') return
+    setActiveTab('Home')
+  }, [activeTab, onboardingMayStart])
+
+
+  useEffect(() => {
+    if (!onboardingMayStart || activeTab !== 'Home') {
+      setOnboardingGateReady(false)
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      setOnboardingGateReady(true)
+    }, reducedMotion ? 0 : 500)
+
+    return () => window.clearTimeout(timer)
+  }, [activeTab, onboardingMayStart, reducedMotion])
+
+  const refreshDiscordAccess = useCallback(async (force = false) => {
+    if (!isTauriRuntime()) {
+      setDiscordAuth((prev) => ({ ...prev }))
+      return
+    }
+    const now = Date.now()
+    if (!force && now - lastDiscordCheckRef.current < 60_000) return
+    lastDiscordCheckRef.current = now
+    setDiscordAuthBusy(true)
+    try {
+      const next = await invoke<DiscordAuthStatus>('get_discord_auth_status')
+      setDiscordAuth(next)
+      if (next.state === 'authorized') {
+        import('@tauri-apps/api/window').then((m) => m.getCurrentWindow().maximize().catch(() => { }))
+      }
+    } catch (error) {
+      setDiscordAuth((current) => ({
+        ...current,
+        state: 'error',
+        message: `Discord access check failed: ${String(error)}`,
+      }))
+    } finally {
+      setDiscordAuthBusy(false)
+    }
+  }, [])
+
+  const loginDiscord = useCallback(async () => {
+    if (!isTauriRuntime()) return
+    setDiscordAuthBusy(true)
+    try {
+      const next = await invoke<DiscordAuthStatus>('login_discord')
+      lastDiscordCheckRef.current = Date.now()
+      setDiscordAuth(next)
+      if (next.state === 'authorized') {
+        import('@tauri-apps/api/window').then((m) => m.getCurrentWindow().maximize().catch(() => { }))
+      }
+    } catch (error) {
+      setDiscordAuth((current) => ({
+        ...current,
+        state: 'error',
+        message: String(error),
+      }))
+    } finally {
+      setDiscordAuthBusy(false)
+    }
+  }, [])
+
+  const logoutDiscord = useCallback(() => {
+    if (!isTauriRuntime()) return
+    setShowLogoutConfirm(true)
+  }, [])
+
+  const executeLogoutDiscord = useCallback(async () => {
+    setShowLogoutConfirm(false)
+    setDiscordAuthBusy(true)
+    try {
+      const next = await invoke<DiscordAuthStatus>('logout_discord')
+      lastDiscordCheckRef.current = 0
+      setDiscordAuth(next)
+    } catch (error) {
+      setDiscordAuth((current) => ({ ...current, state: 'error', message: String(error) }))
+    } finally {
+      setDiscordAuthBusy(false)
+    }
+  }, [])
+
+  // Only run Discord auth check after intro starts exiting (2400ms)
+  useEffect(() => {
+    if (!introExiting) return
+    void refreshDiscordAccess(true)
+    if (!isTauriRuntime()) return
+    const interval = window.setInterval(() => void refreshDiscordAccess(true), 10 * 60_000)
+    const handleFocus = () => void refreshDiscordAccess()
+    window.addEventListener('focus', handleFocus)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [introExiting, refreshDiscordAccess])
+
+  const upsertNotification = useCallback((record: NotificationRecord) => {
+    setNotifications((current) => {
+      const without = current.filter((item) => item.id !== record.id)
+      return [record, ...without].slice(0, 200)
+    })
+  }, [])
+
+  const publishNotification = useCallback(async (notification: NewNotification) => {
+    // Block notifications during intro or Discord verification
+    if (isBlockedState) {
+      if (import.meta.env.DEV) console.debug('[0xoToast] Blocked during startup access checks')
+      return
+    }
+
+    const currentPreferences = preferencesRef.current
+
+    if (import.meta.env.DEV) {
+      console.debug('[0xoToast] Publishing notification', notification.category, notification.severity)
+    }
+
+    if (!currentPreferences.notificationCategories[notification.category]) return
+    const result = isTauriRuntime()
+      ? await invoke<PushNotificationResult>('push_notification', { notification }).catch(() => null)
+      : {
+        inserted: true,
+        record: {
+          ...notification,
+          id: `preview-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          read: false,
+        },
+      }
+    if (!result?.inserted) return
+    upsertNotification(result.record)
+
+    const gameRunning = Object.values(playingGamesRef.current).some(Boolean)
+    const suppressPopup = currentPreferences.doNotDisturbWhilePlaying && gameRunning
+
+    if (currentPreferences.inAppNotifications && !suppressPopup) {
+      setToastNotifications((current) => [result.record, ...current].slice(0, 3))
+      window.setTimeout(() => {
+        setToastNotifications((current) => current.filter((item) => item.id !== result.record.id))
+      }, result.record.severity === 'error' ? 9000 : 6000)
+    }
+
+    if (
+      isTauriRuntime() &&
+      currentPreferences.windowsNotifications &&
+      !suppressPopup &&
+      (!document.hasFocus() || document.visibilityState !== 'visible')
+    ) {
+      let granted = await isPermissionGranted().catch(() => false)
+      if (!granted) granted = (await requestPermission().catch(() => 'denied')) === 'granted'
+      if (granted) {
+        sendNotification({
+          id: notificationIdToNumber(result.record.id),
+          title: result.record.title,
+          body: result.record.message,
+          silent: !currentPreferences.notificationSound,
+          actionTypeId: '0xolemon-open',
+          extra: { notificationId: result.record.id },
+        })
+      }
+    }
+  }, [upsertNotification, isBlockedState])
+
+  useEffect(() => {
+    const handleCustomToast = (e: Event) => {
+      const customEvent = e as CustomEvent<NewNotification>
+      void publishNotification(customEvent.detail)
+    }
+    window.addEventListener('0xo-toast', handleCustomToast)
+    return () => window.removeEventListener('0xo-toast', handleCustomToast)
+  }, [publishNotification])
+
+  // Listen for navigation requests
+  useEffect(() => {
+    const handleNavigateToSettings = (e: Event) => {
+      const customEvent = e as CustomEvent<{ section?: string }>
+      const section = customEvent.detail?.section
+      const pane = section === 'notification-settings'
+        ? 'notifications'
+        : section === 'lua-sources' || section === 'steam-integration'
+          ? 'games'
+          : null
+      if (pane) {
+        window.localStorage.setItem('0xolemon.settings.activePane', pane)
+        window.dispatchEvent(new CustomEvent('0xo-settings-pane', { detail: { pane } }))
+      }
+      setActiveTab('Settings')
+      // Optionally scroll to specific section after the matching settings pane mounts.
+      if (section) {
+        setTimeout(() => {
+          const element = document.getElementById(section)
+          element?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }, 120)
+      }
+    }
+    window.addEventListener('navigate-to-settings', handleNavigateToSettings)
+    return () => window.removeEventListener('navigate-to-settings', handleNavigateToSettings)
+  }, [])
+
+  const routeNotificationAction = useCallback((action: NotificationAction | null) => {
+    if (!action) return
+    if (action.gameId) setSelectedGameId(action.gameId)
+    if (action.kind === 'update-center') setShowUpdateCenter(true)
+    if (action.tab) setActiveTab(action.tab)
+    setNotificationOpen(false)
+  }, [])
+
+  const openNotificationRecord = useCallback((notification: NotificationRecord) => {
+    setNotifications((current) =>
+      current.map((item) => (item.id === notification.id ? { ...item, read: true } : item)),
+    )
+    routeNotificationAction(notification.action)
+    if (isTauriRuntime()) {
+      void invoke('open_notification_action', { notificationId: notification.id }).catch(() => undefined)
+    }
+  }, [routeNotificationAction])
+
+  const enableWindowsNotifications = useCallback(async () => {
+    if (!isTauriRuntime()) {
+      setPreferences((current) => ({ ...current, windowsNotifications: false }))
+      return false
+    }
+    let granted = await isPermissionGranted().catch(() => false)
+    if (!granted) granted = (await requestPermission().catch(() => 'denied')) === 'granted'
+    setPreferences((current) => ({ ...current, windowsNotifications: granted }))
+    return granted
+  }, [])
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    void getVersion()
+      .then((version) => {
+        setAppVersion(version)
+        const pendingVersion = window.localStorage.getItem('0xo_pending_launcher_update')
+        if (pendingVersion === version) {
+          window.localStorage.removeItem('0xo_pending_launcher_update')
+          setShowWhatsNewModal(true)
+          void publishNotification({
+            category: 'launcher',
+            severity: 'success',
+            title: `Launcher updated to ${version}`,
+            message: 'The signed launcher update was installed successfully.',
+            dedupeKey: `launcher-update:${version}:completed`,
+            entity: { kind: 'launcher-update', id: version },
+            action: { kind: 'open-home', tab: 'Home', gameId: null },
+          })
+        }
+      })
+      .catch(() => undefined)
+    void invoke<NotificationRecord[]>('list_notifications').then(setNotifications).catch(() => undefined)
+    void registerActionTypes([
+      {
+        id: '0xolemon-open',
+        actions: [{ id: 'open', title: 'Open launcher', foreground: true }],
+      },
+    ]).catch(() => undefined)
+
+    let disposeNotification: (() => void) | undefined
+    let disposeAction: (() => void) | undefined
+    let disposeNativeAction: (() => void) | undefined
+    listen<NotificationRecord>('launcher://notification', (event) => upsertNotification(event.payload))
+      .then((dispose) => {
+        disposeNotification = dispose
+      })
+      .catch(() => undefined)
+    listen<NotificationAction>('launcher://notification-action', (event) => routeNotificationAction(event.payload))
+      .then((dispose) => {
+        disposeAction = dispose
+      })
+      .catch(() => undefined)
+    onNativeNotificationAction((notification) => {
+      const notificationId = notification.extra?.notificationId
+      if (typeof notificationId === 'string') {
+        void invoke('open_notification_action', { notificationId }).catch(() => undefined)
+      }
+    })
+      .then((dispose) => {
+        disposeNativeAction = dispose.unregister
+      })
+      .catch(() => undefined)
+
+    return () => {
+      disposeNotification?.()
+      disposeAction?.()
+      disposeNativeAction?.()
+    }
+  }, [publishNotification, routeNotificationAction, upsertNotification])
+
+  useEffect(() => {
+    const audio = new Audio(installCompleteSoundUrl)
+    audio.preload = 'auto'
+    installCompleteAudioRef.current = audio
+    return () => {
+      audio.pause()
+      installCompleteAudioRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleAddToLibrary = (event: Event) => {
+      const custom = event as CustomEvent<{ gameId: string; title?: string }>
+      const gameId = custom.detail?.gameId
+      if (!gameId) return
+      addLauncherLibraryGameIds([gameId])
+      const foundGame = catalog.games.find((g) => g.id === gameId)
+      const title = custom.detail?.title || foundGame?.title || gameId
+      void publishNotification({
+        category: 'launcher',
+        severity: 'success',
+        title: t.library.gameAddedToLibrary,
+        message: title,
+        dedupeKey: `add-to-library:${gameId}:${Date.now()}`,
+        entity: { kind: 'game', id: gameId },
+        action: { kind: 'open-library', tab: 'Library', gameId },
+      })
+    }
+    window.addEventListener('0xo-add-to-library', handleAddToLibrary)
+    return () => window.removeEventListener('0xo-add-to-library', handleAddToLibrary)
+  }, [addLauncherLibraryGameIds, catalog.games, publishNotification, t.library.gameAddedToLibrary])
+
+  useEffect(() => {
+    const handleRemoveFromLibrary = (event: Event) => {
+      const custom = event as CustomEvent<{ gameId: string; title?: string }>
+      const gameId = custom.detail?.gameId
+      if (!gameId) return
+      removeLauncherLibraryGameIds([gameId])
+      const foundGame = catalog.games.find((g) => g.id === gameId)
+      const title = custom.detail?.title || foundGame?.title || gameId
+      void publishNotification({
+        category: 'launcher',
+        severity: 'info',
+        title: t.library.gameRemovedFromLibrary || 'Removed from Library',
+        message: title,
+        dedupeKey: `remove-from-library:${gameId}:${Date.now()}`,
+        entity: { kind: 'game', id: gameId },
+        action: { kind: 'open-library', tab: 'Store', gameId },
+      })
+    }
+    window.addEventListener('0xo-remove-from-library', handleRemoveFromLibrary)
+    return () => window.removeEventListener('0xo-remove-from-library', handleRemoveFromLibrary)
+  }, [removeLauncherLibraryGameIds, catalog.games, publishNotification, t.library.gameRemovedFromLibrary])
+
+  const primeInstallCompleteSound = useCallback(() => {
+    if (!preferencesRef.current.playInstallCompleteSound) return
+    const audio = installCompleteAudioRef.current
+    if (!audio) return
+    const previousMuted = audio.muted
+    audio.muted = true
+    audio.currentTime = 0
+    void audio.play()
+      .then(() => {
+        audio.pause()
+        audio.currentTime = 0
+        audio.muted = previousMuted
+      })
+      .catch(() => {
+        audio.muted = previousMuted
+      })
+  }, [])
+
+  const playInstallCompleteSound = useCallback((completedJob: JobJournal) => {
+    if (
+      completedJob.status !== 'committed' ||
+      completedJob.kind !== 'install' ||
+      !preferencesRef.current.playInstallCompleteSound ||
+      !audibleInstallJobIdsRef.current.has(completedJob.id) ||
+      installCompleteSoundJobsRef.current.has(completedJob.id)
+    ) {
+      return
+    }
+    installCompleteSoundJobsRef.current.add(completedJob.id)
+    audibleInstallJobIdsRef.current.delete(completedJob.id)
+    const audio = installCompleteAudioRef.current
+    if (!audio) return
+    audio.muted = false
+    audio.currentTime = 0
+    void audio.play().catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    let disposed = false
+    void (async () => {
+      try {
+        let settings = await invoke<LauncherSettings>('get_launcher_settings')
+        const migrationKey = '0xo_backend_library_migrated_v1'
+        const localRoot = preferencesRef.current.defaultLibraryRoot.trim().replace(/[\\/]+$/, '')
+        const backendRoot = settings.defaultLibrary.trim().replace(/[\\/]+$/, '')
+        if (
+          !localStorage.getItem(migrationKey)
+          && localRoot
+          && localRoot.toLowerCase() !== backendRoot.toLowerCase()
+          && backendRoot.toLowerCase() === DEFAULT_STORE_ROOT.toLowerCase()
+        ) {
+          settings = await invoke<LauncherSettings>('set_launcher_settings', {
+            settings: { ...settings, defaultLibrary: localRoot },
+          })
+        }
+        localStorage.setItem(migrationKey, '1')
+        if (disposed) return
+        setLauncherSettings(settings)
+        setPreferences((current) => (
+          current.defaultLibraryRoot === settings.defaultLibrary
+            ? current
+            : { ...current, defaultLibraryRoot: settings.defaultLibrary }
+        ))
+      } catch (error) {
+        if (!disposed) setSettingsUpdateStatus(`Could not load downloader settings: ${String(error)}`)
+      }
+    })()
+    return () => {
+      disposed = true
+    }
+  }, [])
+
+  const refreshRuntimeStates = useCallback(() => {
+    if (!isTauriRuntime()) return Promise.resolve()
+    return invoke<GameRuntimeState[]>('get_game_runtime_states')
+      .then((states) => {
+        setRuntimeStates(states)
+        const running: Record<string, boolean> = {}
+        for (const state of states) running[state.gameId] = state.running
+        setPlayingGames(running)
+      })
+      .catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
+    void refreshRuntimeStates()
+    if (!isTauriRuntime()) return
+    let startedDispose: (() => void) | undefined
+    let exitedDispose: (() => void) | undefined
+    let achievementDispose: (() => void) | undefined
+    let errorDispose: (() => void) | undefined
+
+    const clearNvidiaToastTimers = () => {
+      for (const timer of nvidiaToastTimersRef.current) {
+        window.clearTimeout(timer)
+      }
+      nvidiaToastTimersRef.current = []
+    }
+
+    const scheduleNvidiaToast = () => {
+      clearNvidiaToastTimers()
+      const showTimer = window.setTimeout(() => {
+        setShowNvidiaToast(true)
+        nvidiaToastTimersRef.current = nvidiaToastTimersRef.current.filter((timer) => timer !== showTimer)
+        const hideTimer = window.setTimeout(() => {
+          setShowNvidiaToast(false)
+          nvidiaToastTimersRef.current = nvidiaToastTimersRef.current.filter((timer) => timer !== hideTimer)
+        }, 8000)
+        nvidiaToastTimersRef.current.push(hideTimer)
+      }, 25000)
+      nvidiaToastTimersRef.current.push(showTimer)
+    }
+
+    listen<{ gameId: string }>('launcher://game-started', (event) => {
+      setPlayingGames((current) => ({ ...current, [event.payload.gameId]: true }))
+      const storageKey = `0xo.social.play-session.${event.payload.gameId}`
+      let session = socialPlaySessionsRef.current[event.payload.gameId]
+      if (!session) {
+        try {
+          const stored = window.localStorage.getItem(storageKey)
+          session = stored ? JSON.parse(stored) as { requestId: string; startedAt: string } : undefined
+        } catch {
+          session = undefined
+        }
+      }
+      if (!session?.requestId || !session.startedAt) {
+        session = { requestId: crypto.randomUUID(), startedAt: new Date().toISOString() }
+      }
+      socialPlaySessionsRef.current[event.payload.gameId] = session
+      try { window.localStorage.setItem(storageKey, JSON.stringify(session)) } catch { /* optional recovery cache */ }
+      void refreshRuntimeStates()
+      scheduleNvidiaToast()
+    }).then((dispose) => {
+      startedDispose = dispose
+    })
+    listen<{ gameId: string; exitCode: number | null; sessionSeconds: number }>('launcher://game-exited', (event) => {
+      setPlayingGames((current) => ({ ...current, [event.payload.gameId]: false }))
+      const storageKey = `0xo.social.play-session.${event.payload.gameId}`
+      let session = socialPlaySessionsRef.current[event.payload.gameId]
+      if (!session) {
+        try {
+          const stored = window.localStorage.getItem(storageKey)
+          session = stored ? JSON.parse(stored) as { requestId: string; startedAt: string } : undefined
+        } catch {
+          session = undefined
+        }
+      }
+      if (session?.requestId && event.payload.sessionSeconds > 0) {
+        void recordSocialStats({
+          eventId: session.requestId,
+          kind: 'game-session',
+          playMinutes: Math.max(1, Math.round(event.payload.sessionSeconds / 60)),
+          gamesPlayed: 1,
+        }).catch(() => undefined)
+      }
+      delete socialPlaySessionsRef.current[event.payload.gameId]
+      try { window.localStorage.removeItem(storageKey) } catch { /* optional recovery cache */ }
+      clearNvidiaToastTimers()
+      setShowNvidiaToast(false)
+      void refreshRuntimeStates()
+    }).then((dispose) => {
+      exitedDispose = dispose
+    })
+    achievementDispose = subscribeAchievementEvents((event) => {
+      if (event.kind !== 'unlock') return
+      void publishNotification({
+        category: 'achievements',
+        severity: 'success',
+        title: `Achievement unlocked: ${event.name || event.achievementId}`,
+        message: event.description || 'A new achievement was recorded.',
+        dedupeKey: `achievement:${event.eventId}`,
+        entity: { kind: 'game', id: event.gameId },
+        action: { kind: 'open-game', tab: 'Library', gameId: event.gameId },
+      })
+    })
+    listen<string>('launcher://runtime-error', (event) => {
+      void publishNotification({
+        category: 'errors',
+        severity: 'error',
+        title: 'Game runtime error',
+        message: event.payload,
+        dedupeKey: `runtime-error:${event.payload}`,
+        entity: null,
+        action: { kind: 'open-library', tab: 'Library', gameId: null },
+      })
+    }).then((dispose) => {
+      errorDispose = dispose
+    })
+
+    return () => {
+      clearNvidiaToastTimers()
+      startedDispose?.()
+      exitedDispose?.()
+      achievementDispose?.()
+      errorDispose?.()
+    }
+  }, [publishNotification, refreshRuntimeStates])
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    let unlisten: (() => void) | undefined
+    listen<{ state: string; message: string; gameId: string | null }>('launcher://auto-update', (event) => {
+      setSettingsUpdateStatus(event.payload.message)
+    }).then((dispose) => {
+      unlisten = dispose
+    })
+    return () => unlisten?.()
+  }, [])
+
+  const requestGameAsset = useCallback((game: GameSummary | null | undefined, assetId: string | undefined, urgent = false) => {
+    if (!game || !assetId) {
+      return
+    }
+
+    // Only approved official image CDNs may bypass local asset resolution.
+    // Relay, arbitrary, malformed, and non-HTTPS values use the safe fallback path.
+    if (isAllowedDirectImageUrl(assetId) && navigator.onLine) {
+      return
+    }
+    if (assetUrlsRef.current[assetId] || assetRequestRef.current.has(assetId)) {
+      return
+    }
+    assetRequestRef.current.add(assetId)
+
+    if (!isTauriRuntime()) {
+      import('./lib/remoteAssets').then(({ fetchRemoteAssetUrl }) => {
+        fetchRemoteAssetUrl(assetId, game).then((remoteUrl) => {
+          if (remoteUrl) {
+            setAssetUrls((current) => {
+              if (current[assetId]) return current
+              return { ...current, [assetId]: remoteUrl }
+            })
+          } else {
+            // Final fallback to the repository's raw web asset URL.
+            fetchWebAssetUrl(assetId).then((url) => {
+              if (url) {
+                setAssetUrls((current) => {
+                  if (current[assetId]) return current
+                  return { ...current, [assetId]: url }
+                })
+              }
+            })
+          }
+        })
+      })
+      return
+    }
+    const delay = urgent ? 0 : Math.min(1200, assetDelaySlotRef.current++ * 90)
+    window.setTimeout(async () => {
+      // Direct remote assets only use the local offline cache when disconnected.
+      if (isAllowedDirectImageUrl(assetId)) {
+        // When offline: try reading from offline_cache first
+        if (!navigator.onLine) {
+          try {
+            const blob = await invoke<AssetBlob>('get_cached_asset', { gameId: game.id, assetId })
+            const url = `data:${blob.mimeType};base64,${blob.dataBase64}`
+            setAssetUrls((current) => {
+              if (current[assetId]) return current
+              return { ...current, [assetId]: url }
+            })
+            return
+          } catch {
+            // Not cached - no image available offline
+            return
+          }
+        }
+        return
+      }
+
+      try {
+        const blob = await invoke<AssetBlob>('get_game_asset', { gameId: game.id, assetId })
+        const url = `data:${blob.mimeType};base64,${blob.dataBase64}`
+        setAssetUrls((current) => {
+          if (current[assetId]) return current
+          return { ...current, [assetId]: url }
+        })
+      } catch {
+        // Fallback 1: if local asset fails (or doesn't exist), try a URL the
+        // catalog already resolved ahead of time (Render/Firestore-provided
+        // SteamGridDB link) via remoteAssets.ts.
+        import('./lib/remoteAssets').then(({ fetchRemoteAssetUrl, getRemoteAssetType }) => {
+          fetchRemoteAssetUrl(assetId, game).then((remoteUrl) => {
+            if (remoteUrl) {
+              setAssetUrls((current) => {
+                if (current[assetId]) return current
+                return { ...current, [assetId]: remoteUrl }
+              })
+              return
+            }
+
+            // Fallback 2: no pre-resolved catalog URL for this game/asset -
+            // ask the backend to look the artwork up on SteamGridDB
+            // directly. The backend uses its own embedded API key, so this
+            // works for every installed copy of the launcher, not just
+            // machines with STEAMGRIDDB_API_KEY set in the environment.
+            const assetType = getRemoteAssetType(assetId, game)
+            const appId = Number(game.appid)
+            if (!assetType || !Number.isFinite(appId) || appId <= 0) {
+              return
+            }
+            invoke<{ url: string } | null>('lookup_steamgriddb_artwork', { appId, assetType })
+              .then((artwork) => {
+                if (artwork?.url) {
+                  setAssetUrls((current) => {
+                    if (current[assetId]) return current
+                    return { ...current, [assetId]: artwork.url }
+                  })
+                }
+              })
+              .catch(() => {
+                // SteamGridDB unavailable or rate-limited - keep whatever
+                // local/fallback art is already showing.
+              })
+          })
+        })
+      }
+    }, delay)
+  }, [])
+
+  const loadCatalog = useCallback(async () => {
+    if (!isTauriRuntime()) {
+      setCatalogLoadState('ready')
+      return
+    }
+
+    setCatalogGeneration(current => current + 1)
+  }, [])
+
+  const refreshSteamEnvironment = useCallback(async (announce = false) => {
+    if (!isTauriRuntime()) {
+      setSteamSettingsStatus('Steam integration diagnostics require the desktop launcher.')
+      return
+    }
+    if (announce) setSteamSettingsStatus('Refreshing Steam status...')
+    try {
+      const environment = await invoke<SteamEnvironmentInfo>('get_steam_environment')
+      setSteamEnvironment(environment)
+      if (announce) {
+        setSteamSettingsStatus(
+          environment.installed
+            ? environment.running
+              ? 'Steam is installed and running.'
+              : 'Steam is installed but not running.'
+            : 'Steam installation was not detected.',
+        )
+      }
+    } catch (error) {
+      setSteamSettingsStatus(`Steam status failed: ${String(error)}`)
+    }
+  }, [])
+
+  // Sync catalog into local state (merge backend and Firestore catalogs)
+  useEffect(() => {
+    const backendGames = backendCatalog?.games || []
+    const firestoreGames = firestoreCatalog?.games || []
+
+    const mergedGamesMap = new Map<string, GameSummary>()
+
+    // Add Firestore games first (default / 0xolemon)
+    firestoreGames.forEach(game => {
+      mergedGamesMap.set(game.id, game)
+    })
+
+    // Add Backend games (0xolemon1) - overwrite if same ID, but preserve version tags from Firestore
+    backendGames.forEach(game => {
+      const firestoreGame = mergedGamesMap.get(game.id)
+      if (firestoreGame && firestoreGame.availableVersions?.length > 0) {
+        // Merge tags from Firestore into backend game's versions
+        const firestoreVersionMap = new Map<string, string[]>()
+        firestoreGame.availableVersions.forEach((v) => {
+          if (v && v.tags && Array.isArray(v.tags) && v.tags.length > 0) {
+            firestoreVersionMap.set(v.version || v.label || '', v.tags)
+          }
+        })
+        if (firestoreVersionMap.size > 0) {
+          const mergedVersions = (game.availableVersions || []).map((v) => {
+            if (!v || (v.tags && v.tags.length > 0)) return v
+            const tags = firestoreVersionMap.get(v.version) || firestoreVersionMap.get(v.label) || firestoreVersionMap.get(v.buildId)
+            return tags ? { ...v, tags } : v
+          })
+          mergedGamesMap.set(game.id, { ...game, availableVersions: mergedVersions })
+          return
+        }
+      }
+      mergedGamesMap.set(game.id, game)
+    })
+
+    const mergedGames = Array.from(mergedGamesMap.values())
+    const newestGameIds: string[] = []
+
+    if (firestoreGames.length > 0) {
+      newestGameIds.push(firestoreGames[firestoreGames.length - 1].id)
+    }
+    if (backendGames.length > 0) {
+      newestGameIds.push(backendGames[backendGames.length - 1].id)
+    }
+
+    if (mergedGames.length > 0) {
+      setCatalog({
+        defaultLocale: backendCatalog?.defaultLocale || firestoreCatalog?.defaultLocale || 'en-US',
+        games: mergedGames,
+        newestGameIds
+      })
+      setCatalogLoadState(backendResource.state === 'ready' && legacyResource.state === 'ready' ? 'ready' : 'stale')
+
+      // Use the newest game from backend if available, otherwise firestore
+      const newestGame = backendGames.length > 0
+        ? backendGames[backendGames.length - 1]
+        : firestoreGames[firestoreGames.length - 1]
+
+      if (newestGame) {
+        const lastNewGameId = localStorage.getItem('lastNotifiedNewGameId')
+        if (lastNewGameId !== newestGame.id) {
+          localStorage.setItem('lastNotifiedNewGameId', newestGame.id)
+          void publishNotification({
+            category: 'launcher',
+            severity: 'info',
+            title: 'New Game Added!',
+            message: `${newestGame.title} has just arrived. Check it out!`,
+            dedupeKey: `new-game-added-${newestGame.id}`,
+            entity: { kind: 'game', id: newestGame.id },
+            action: { kind: 'open-store', tab: 'Store', gameId: newestGame.id },
+          })
+        }
+      }
+    }
+    else {
+      setCatalog({ defaultLocale: 'en-US', games: [] })
+      setCatalogLoadState(backendResource.state === 'loading' || legacyResource.state === 'loading'
+        ? 'loading' : backendResource.state === 'ready' && legacyResource.state === 'ready' ? 'ready' : 'error')
+    }
+  }, [backendCatalog, firestoreCatalog, backendResource.state, legacyResource.state, publishNotification])
+
+  useEffect(() => {
+    queueMicrotask(() => void loadCatalog())
+  }, [loadCatalog])
+
+  useEffect(() => {
+    if (activeTab === 'Settings') {
+      queueMicrotask(() => void refreshSteamEnvironment())
+    }
+  }, [activeTab, refreshSteamEnvironment])
+
+  // Check lua mode status on mount
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    invoke<boolean>('is_lua_game_mode_enabled')
+      .then(setLuaModeEnabled)
+      .catch(() => setLuaModeEnabled(false))
+  }, [])
+
+  // Cache images for existing installed games for offline use
+  useEffect(() => {
+    if (!isTauriRuntime() || !isOnline) return
+    const installedGameIds = Object.keys(installStates).filter((id) => installStates[id]?.installed)
+    if (installedGameIds.length === 0) return
+
+    const cacheTimeout = setTimeout(() => {
+      for (const gameId of installedGameIds) {
+        const game = catalogRef.current.games.find(g => g.id === gameId)
+        if (game) {
+          const assetIdsToCache = [
+            game.gridAssetId,
+            game.heroAssetId,
+            game.logoAssetId,
+            game.iconAssetId,
+          ].filter((id): id is string => Boolean(id) && (id.startsWith('http://') || id.startsWith('https://')))
+          for (const assetId of assetIdsToCache) {
+            invoke('cache_remote_asset', { url: assetId, gameId, assetId }).catch(() => undefined)
+          }
+        }
+      }
+    }, 5000)
+
+    return () => clearTimeout(cacheTimeout)
+  }, [installStates, isOnline])
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    let unlisten: (() => void) | undefined
+    listen<LauncherUpdateProgress>('launcher://update-progress', (event) => {
+      const progress = event.payload
+      setLauncherUpdateProgress(progress)
+      if (progress.phase === 'downloading') {
+        const now = Date.now()
+        const points = [...launcherUpdateRateRef.current, { bytes: progress.downloadedBytes, at: now }]
+          .filter((point) => now - point.at <= 6000)
+          .slice(-8)
+        launcherUpdateRateRef.current = points
+        if (points.length >= 2) {
+          const first = points[0]
+          const last = points[points.length - 1]
+          const seconds = Math.max((last.at - first.at) / 1000, 0.001)
+          const sampleRate = Math.max(0, (last.bytes - first.bytes) / seconds)
+          setLauncherUpdateSpeed((current) => (current > 0 ? current * 0.65 + sampleRate * 0.35 : sampleRate))
+          if (progress.totalBytes && sampleRate > 1) {
+            setLauncherUpdateEta(Math.max(0, (progress.totalBytes - progress.downloadedBytes) / sampleRate))
+          }
+        }
+      } else {
+        setLauncherUpdateEta(null)
+      }
+      const total = progress.totalBytes ?? 0
+      const percent = total > 0 ? Math.min(100, Math.round((progress.downloadedBytes / total) * 100)) : null
+      const labels: Record<string, string> = {
+        checking: 'Checking for updates...',
+        downloading: percent === null ? 'Downloading update...' : `Downloading update... ${percent}%`,
+        verifying: 'Download complete. Verifying signature...',
+        installing: 'Signature verified. Installing update...',
+        restarting: 'Update installed. Restarting launcher...',
+        failed: progress.error ? `Update failed: ${progress.error}` : 'Update failed.',
+      }
+      setSettingsUpdateStatus(labels[progress.phase] ?? progress.phase)
+      if (progress.phase === 'failed') {
+        void publishNotification({
+          category: 'errors',
+          severity: 'error',
+          title: 'Launcher update failed',
+          message: progress.error || 'The signed launcher update could not be applied.',
+          dedupeKey: `launcher-update:${progress.version}:failed:${progress.error ?? 'unknown'}`,
+          entity: { kind: 'launcher-update', id: progress.version || 'unknown' },
+          action: { kind: 'update-center', tab: null, gameId: null },
+        })
+        setShowUpdateCenter(true)
+      }
+    })
+      .then((dispose) => {
+        unlisten = dispose
+      })
+      .catch(console.error)
+    return () => unlisten?.()
+  }, [publishNotification])
+
+  useEffect(() => {
+    if (!isTauriRuntime() || !preferences.autoCheckLauncherUpdates) {
+      return
+    }
+
+    const updateTimer = window.setTimeout(() => {
+      invoke<LauncherUpdateInfo | null>('check_launcher_update')
+        .then((info) => {
+          if (info) {
+            setLauncherUpdate(info)
+            void publishNotification({
+              category: 'launcher',
+              severity: 'info',
+              title: `Launcher ${info.version} is available`,
+              message: 'A signed launcher update is ready to download.',
+              dedupeKey: `launcher-update:${info.version}:available`,
+              entity: { kind: 'launcher-update', id: info.version },
+              action: { kind: 'update-center', tab: null, gameId: null },
+            })
+          }
+        })
+        .catch(console.error)
+    }, 1800)
+
+    return () => window.clearTimeout(updateTimer)
+  }, [preferences.autoCheckLauncherUpdates, publishNotification])
+
+  const refreshPatchAvailability = useCallback(async (gameId: string, state: GameInstallState) => {
+    if (
+      !state.installed ||
+      ['recovering', 'conflict', 'unavailable'].includes(state.discoveryStatus ?? '') ||
+      !state.currentVersion ||
+      state.currentVersion === 'unknown' ||
+      state.currentVersion === 'not installed' ||
+      !state.installPath
+    ) {
+      setPendingPatches((current) => {
+        if (!(gameId in current)) return current
+        const next = { ...current }
+        delete next[gameId]
+        return next
+      })
+      return
+    }
+
+    try {
+      const patchId = await invoke<string | null>('check_patch_available', {
+        gameId,
+        version: state.currentVersion,
+      })
+      setPendingPatches((current) => {
+        if (!patchId || patchId === state.appliedPatchId) {
+          if (!(gameId in current)) return current
+          const next = { ...current }
+          delete next[gameId]
+          return next
+        }
+        return { ...current, [gameId]: patchId }
+      })
+    } catch (error) {
+      // Preserve a previously detected patch while the backend retries a transient manifest error.
+      console.error(`check_patch_available failed for ${gameId}:`, error)
+    }
+  }, [])
+
+  const refreshInstallState = useCallback(async (gameId: string, committedInstallPath?: string) => {
+    if (!isTauriRuntime()) {
+      return
+    }
+    const state = await invoke<GameInstallState>('get_game_install_state', { gameId })
+    setInstallStates((current) => {
+      const existing = current[gameId]
+      if (
+        committedInstallPath &&
+        !state.installed &&
+        existing?.installed &&
+        existing.installPath === committedInstallPath
+      ) {
+        return current
+      }
+      return { ...current, [gameId]: state }
+    })
+    void refreshPatchAvailability(gameId, state)
+  }, [refreshPatchAvailability])
+
+  // Depot Downloader finalizes installs out-of-band (its own process). Refresh the
+  // global install state so the Library/Depot filter and Play buttons light up
+  // without requiring an app restart.
+  useEffect(() => {
+    const handleInstallStateRefresh = (event: Event) => {
+      const custom = event as CustomEvent<{ gameId?: string }>
+      const gameId = custom.detail?.gameId
+      if (!gameId) return
+      void refreshInstallState(gameId)
+    }
+    window.addEventListener('0xo-install-state-refresh', handleInstallStateRefresh)
+    return () => window.removeEventListener('0xo-install-state-refresh', handleInstallStateRefresh)
+  }, [refreshInstallState])
+
+  const runInstallDiscovery = useCallback(async (gameIds: string[]) => {
+    if (!isTauriRuntime() || gameIds.length === 0) return null
+    const requestId = ++installDiscoveryRequestRef.current
+    setInstallDiscoveryBusy(true)
+    try {
+      const report = await invoke<InstallDiscoveryReport>('discover_game_installs', { gameIds })
+      const states = await invoke<GameInstallState[]>('get_game_install_states', { gameIds })
+      if (requestId !== installDiscoveryRequestRef.current) return report
+
+      setInstallDiscoveryReport(report)
+      setInstallStates(Object.fromEntries(states.map((state) => [state.gameId, state])))
+      states.forEach((state, index) => {
+        window.setTimeout(() => {
+          if (requestId === installDiscoveryRequestRef.current) {
+            void refreshPatchAvailability(state.gameId, state)
+          }
+        }, index * 120)
+      })
+
+      if (report.recovered.length > 0) {
+        const recoveredCount = report.recovered.length
+        const recoveredMessage = recoveredCount === 1
+          ? t.installRecovery.recoveredOne
+          : t.installRecovery.recoveredMany
+        void publishNotification({
+          category: 'launcher',
+          severity: 'success',
+          title: t.installRecovery.recoveredTitle,
+          message: recoveredMessage.replace('{count}', String(recoveredCount)),
+          dedupeKey: `install-discovery:${report.recovered.map((item) => item.installPath).sort().join('|')}`,
+          entity: { kind: 'launcher', id: 'install-discovery' },
+          action: { kind: 'open-tab', tab: 'Library', gameId: null },
+        })
+      }
+
+      const locatePromptSeen = localStorage.getItem('0xo_install_recovery_prompt_v1') === '1'
+      setShowInstallRecovery(report.conflicts.length > 0)
+      setShowLocateLibraryPrompt(report.requiresLocateLibrary && !locatePromptSeen)
+      return report
+    } catch (error) {
+      if (requestId === installDiscoveryRequestRef.current) {
+        setScanStatus(`Installed game recovery failed: ${String(error)}`)
+      }
+      throw error
+    } finally {
+      if (requestId === installDiscoveryRequestRef.current) setInstallDiscoveryBusy(false)
+    }
+  }, [publishNotification, refreshPatchAvailability, t.installRecovery.recoveredMany, t.installRecovery.recoveredOne, t.installRecovery.recoveredTitle])
+
+  useEffect(() => {
+    if (
+      !isTauriRuntime()
+      || catalogLoadState !== 'ready'
+      || catalog.games.length === 0
+      || !hasLauncherAccess
+      || showIntro
+    ) {
+      return
+    }
+    const gameIds = catalog.games.map((game) => game.id)
+    const signature = [...gameIds].sort().join('|')
+    if (installDiscoveryCatalogRef.current === signature) return
+    installDiscoveryCatalogRef.current = signature
+    void runInstallDiscovery(gameIds).catch(() => {
+      installDiscoveryCatalogRef.current = ''
+    })
+  }, [catalog.games, catalogLoadState, hasLauncherAccess, runInstallDiscovery, showIntro])
+
+  const updateReadyGameIds = useMemo(() => {
+    return catalog.games
+      .filter((game) => {
+        const state = installStates[game.id]
+        if (
+          !state?.installed
+          || ['recovering', 'conflict', 'unavailable'].includes(state.discoveryStatus ?? '')
+          || state.currentVersion === 'unknown'
+          || state.currentVersion === 'not installed'
+        ) {
+          return false
+        }
+
+        const latest =
+          game.availableVersions.find((version) => version.latest)?.version ||
+          (game.availableVersions.length === 1 ? game.availableVersions[0].version : '') ||
+          game.latestVersion
+
+        // If the local state is 'installed' (unknown version string), and the game only has 1 version, assume it's up-to-date
+        if (state.currentVersion === 'installed' && game.availableVersions.length <= 1) {
+          return false
+        }
+
+        const isVersionMismatch = Boolean(latest && latest !== 'unknown' && !versionsEquivalent(state.currentVersion, latest))
+
+        // Check if there is a pending patch (meaning a patch is available and it hasn't been applied yet)
+        const remotePatchId = pendingPatches[game.id]
+        const localPatchId = state.appliedPatchId
+        const hasPendingPatch = Boolean(remotePatchId && remotePatchId !== localPatchId)
+
+        return isVersionMismatch || hasPendingPatch
+      })
+      .map((game) => game.id)
+  }, [catalog.games, installStates, pendingPatches])
+  const installRecoveryTitles = useMemo(
+    () => Object.fromEntries(catalog.games.map((game) => [game.id, game.title])),
+    [catalog.games],
+  )
+  const updatesCatalog = useMemo(
+    () => ({ ...catalog, games: catalog.games.filter((game) => updateReadyGameIds.includes(game.id)) }),
+    [catalog, updateReadyGameIds],
+  )
+  const { mapping } = useSteamAppIds()
+  const [steamInstalledAppIds, setSteamInstalledAppIds] = useState<number[]>([])
+  const [steamBuildIds, setSteamBuildIds] = useState<Record<number, string>>({})
+
+  useEffect(() => {
+    const fetchSteamApps = () => {
+      invoke<number[]>('get_installed_steam_apps')
+        .then(async (appIds) => {
+          setSteamInstalledAppIds(appIds)
+          const buildIds: Record<number, string> = {}
+          await Promise.all(
+            appIds.map(async (appId) => {
+              try {
+                const buildId = await invoke<string | null>('get_steam_game_buildid', { appid: appId })
+                buildIds[appId] = buildId || 'Unknown'
+              } catch {
+                buildIds[appId] = 'Unknown'
+              }
+            })
+          )
+          setSteamBuildIds(buildIds)
+        })
+        .catch(() => undefined)
+    }
+    fetchSteamApps()
+
+    const handleLuaGameModeChange = () => fetchSteamApps()
+    window.addEventListener('lua-game-mode-changed', handleLuaGameModeChange)
+    return () => window.removeEventListener('lua-game-mode-changed', handleLuaGameModeChange)
+  }, [])
+
+  const ownedGameIds = useMemo(() => collectOwnedGameIds({
+    catalog,
+    explicitLibraryGameIds: launcherLibraryLayout.libraryGameIds,
+    installStates,
+    steamMapping: mapping,
+    steamInstalledAppIds,
+  }), [catalog, installStates, launcherLibraryLayout.libraryGameIds, mapping, steamInstalledAppIds])
+  const libraryCatalog = useMemo(
+    () => filterCatalogByOwnedGameIds(catalog, ownedGameIds),
+    [catalog, ownedGameIds],
+  )
+  const themeInstances = useMemo(() => {
+    const favorites = new Set(launcherLibraryLayout.favoriteGameIds)
+    return libraryCatalog.games.map((game) => ({
+      gameId: game.id,
+      title: game.title,
+      iconUrl: safeGameImageUrl(game.iconAssetId, assetUrls) || safeGameImageUrl(game.gridAssetId, assetUrls),
+      gridUrl: safeGameImageUrl(game.gridAssetId, assetUrls),
+      heroUrl: safeGameImageUrl(game.heroAssetId, assetUrls),
+      developer: game.developer,
+      description: game.subtitle,
+      installed: Boolean(installStates[game.id]?.installed || (mapping[game.id] && steamInstalledAppIds.includes(mapping[game.id]))),
+      favorite: favorites.has(game.id),
+      playing: Boolean(playingGames[game.id]),
+    }))
+  }, [assetUrls, installStates, launcherLibraryLayout.favoriteGameIds, libraryCatalog.games, mapping, playingGames, steamInstalledAppIds])
+  const themeInstanceGroups = useMemo(() => {
+    const groups = new Map<string, { id: string; name: string; gameIds: string[]; collapsed: boolean }>()
+    groups.set('all-instances', {
+      id: 'all-instances',
+      name: 'All instances',
+      gameIds: themeInstances.map((instance) => instance.gameId),
+      collapsed: false,
+    })
+    if (launcherLibraryLayout.favoriteGameIds.length > 0) {
+      groups.set('favorites', {
+        id: 'favorites',
+        name: 'Favorites',
+        gameIds: launcherLibraryLayout.favoriteGameIds,
+        collapsed: false,
+      })
+    }
+    launcherLibraryLayout.collections.forEach((collection) => {
+      groups.set(`collection:${collection.id}`, {
+        id: `collection:${collection.id}`,
+        name: collection.name,
+        gameIds: collection.gameIds,
+        collapsed: false,
+      })
+    })
+    launcherLibraryLayout.xmclInstanceGroups.forEach((group) => {
+      if (group.id !== 'all-instances' && !groups.has(group.id)) groups.set(group.id, group)
+    })
+    return [...groups.values()]
+  }, [launcherLibraryLayout.collections, launcherLibraryLayout.favoriteGameIds, launcherLibraryLayout.xmclInstanceGroups, themeInstances])
+
+  const effectiveGameId = useMemo(() => {
+    if (activeTab === 'Home' || activeTab === 'Social' || activeTab === 'CloudRedirect' || activeTab === 'Settings') {
+      return null
+    }
+    if (activeTab === 'Store') return null
+    if (activeTab === 'Backup Game') return selectedGameId
+    if (activeTab === 'Library') {
+      if (!selectedGameId) return null
+      return ownedGameIds.has(selectedGameId) ? selectedGameId : null
+    }
+    const activeJobGameId = job?.gameId || snapshot.lastJob?.gameId
+    if (activeTab === 'Downloads') {
+      return activeJobGameId ?? (selectedGameId && updateReadyGameIds.includes(selectedGameId) ? selectedGameId : null)
+    }
+    return selectedGameId
+  }, [activeTab, job?.gameId, job?.kind, ownedGameIds, snapshot.lastJob?.gameId, snapshot.lastJob?.kind, selectedGameId, updateReadyGameIds])
+
+  const requestHomeAsset = useCallback(
+    (gameId: string, assetId: string, urgent = false) => {
+      const game = catalogRef.current.games.find((candidate) => candidate.id === gameId)
+      requestGameAsset(game, assetId, urgent)
+    },
+    [requestGameAsset],
+  )
+
+  useEffect(() => {
+    if (!effectiveGameId) {
+      return
+    }
+
+    if (!isTauriRuntime()) {
+      const game = catalog.games.find((candidate) => candidate.id === effectiveGameId)
+      let disposed = false
+      Promise.resolve().then(() => {
+        if (!disposed && game) {
+          setDetail(fallbackDetailFromSummary(game))
+        }
+      })
+      return () => {
+        disposed = true
+      }
+    }
+
+    let disposed = false
+    invoke<GameDetail>('get_game_detail', { gameId: effectiveGameId, locale: 'en-US' })
+      .then((nextDetail) => {
+        if (!disposed) setDetail(nextDetail)
+      })
+      .catch((error) => {
+        if (disposed) return
+        console.error(`Unable to load details for ${effectiveGameId}:`, error)
+        const game = catalog.games.find((candidate) => candidate.id === effectiveGameId)
+        setDetail(game ? fallbackDetailFromSummary(game) : null)
+      })
+    return () => {
+      disposed = true
+    }
+  }, [catalog.games, effectiveGameId])
+
+  const selectedGame = useMemo(
+    () => (effectiveGameId ? catalog.games.find((game) => game.id === effectiveGameId) ?? null : null),
+    [catalog.games, effectiveGameId],
+  )
+  // Firestore detail â€” used when local .0xo pack is absent (metadataSource === 'preview')
+  const firestoreDetail = useFirestoreDetail(effectiveGameId)
+
+  const activeDetail = useMemo(() => {
+    const local = detail?.gameId === effectiveGameId ? detail : null
+    const firestore = firestoreDetail?.gameId === effectiveGameId ? firestoreDetail : null
+
+    // If local is missing or is the web preview stub â†’ use Firestore entirely
+    if (!local || local.metadataSource === 'preview') {
+      return firestore ?? local
+    }
+
+    // Local is a full pack â€” but Firestore may have richer fields (achievements, media, genres).
+    // Deep-merge: fill in empty arrays from Firestore so the UI is always as complete as possible.
+    if (firestore) {
+      return {
+        ...local,
+        achievements: local.achievements?.length ? local.achievements : (firestore.achievements ?? []),
+        media: local.media?.length ? local.media : (firestore.media ?? []),
+        genres: local.genres?.length ? local.genres : (firestore.genres ?? []),
+        categories: local.categories?.length ? local.categories : (firestore.categories ?? []),
+        ratings: local.ratings?.length ? local.ratings : (firestore.ratings ?? []),
+        shortDescription: local.shortDescription || firestore.shortDescription,
+        detailedDescription: local.detailedDescription || firestore.detailedDescription,
+        releaseDate: local.releaseDate || firestore.releaseDate,
+      }
+    }
+
+    return local
+  }, [detail, firestoreDetail, effectiveGameId])
+
+
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return
+    }
+
+    let disposed = false
+    let unlistenLaunch: (() => void) | undefined
+    let unlistenError: (() => void) | undefined
+    let unlistenSteamRecommendation: (() => void) | undefined
+    let unlistenSpacewarRequired: (() => void) | undefined
+
+    listen<ShortcutLaunchPayload>('launcher://shortcut-launch', (event) => {
+      const payload = event.payload
+      const game = catalog.games.find((candidate) => candidate.id === payload.gameId)
+      setSelectedGameId(payload.gameId)
+      setInstallPath(payload.installPath)
+      setInstallRoot(payload.installPath)
+      setInstallStates((current) => ({
+        ...current,
+        [payload.gameId]: {
+          gameId: payload.gameId,
+          installed: true,
+          currentVersion: current[payload.gameId]?.currentVersion ?? 'installed',
+          installPath: payload.installPath,
+          launchExecutable: payload.launchExecutable ?? current[payload.gameId]?.launchExecutable ?? '',
+        },
+      }))
+      setActiveTab('Library')
+      if (payload.launchExecutable) {
+        setScanStatus(`Starting ${game?.title ?? payload.gameId}`)
+        setLaunchSplash({
+          title: game?.title ?? payload.gameId,
+          heroUrl: game ? safeGameImageUrl(game.heroAssetId, assetUrls) : undefined,
+          iconUrl: game ? safeGameImageUrl(game.iconAssetId, assetUrls) || safeGameImageUrl(game.gridAssetId, assetUrls) : undefined,
+        })
+        window.setTimeout(() => setLaunchSplash(null), 4200)
+      } else {
+        // Multi-executable desktop shortcuts deliberately omit the executable.
+        // Reuse the normal Play flow so the configured option picker is shown.
+        pendingHomeLaunchRef.current = payload.gameId
+        setLaunchSplash(null)
+        setScanStatus(`Choose how to launch ${game?.title ?? payload.gameId}`)
+      }
+    }).then((fn) => {
+      if (disposed) {
+        fn()
+      } else {
+        unlistenLaunch = fn
+      }
+    })
+
+    listen<string>('launcher://shortcut-launch-error', (event) => {
+      setLaunchSplash(null)
+      setScanStatus(event.payload)
+    }).then((fn) => {
+      if (disposed) {
+        fn()
+      } else {
+        unlistenError = fn
+      }
+    })
+
+    listen<ShortcutLaunchPayload>('launcher://steam-recommendation-required', () => {
+      setShowSteamRecommendation(true)
+    }).then((fn) => {
+      if (disposed) {
+        fn()
+      } else {
+        unlistenSteamRecommendation = fn
+      }
+    })
+
+    listen<ShortcutLaunchPayload>('launcher://spacewar-required', () => {
+      setShowSpacewarPrompt(true)
+    }).then((fn) => {
+      if (disposed) {
+        fn()
+      } else {
+        unlistenSpacewarRequired = fn
+      }
+    })
+
+    return () => {
+      disposed = true
+      unlistenLaunch?.()
+      unlistenError?.()
+      unlistenSteamRecommendation?.()
+      unlistenSpacewarRequired?.()
+    }
+  }, [assetUrls, catalog.games])
+
+  useEffect(() => {
+    if (!selectedGame) {
+      return
+    }
+    const state = installStates[selectedGame.id]
+    let disposed = false
+    queueMicrotask(() => {
+      if (disposed) {
+        return
+      }
+      if (state?.installed) {
+        setInstallPath(state.installPath)
+        setInstallRoot(state.installPath)
+        setHasScanned(true)
+        setScanStatus(`Installed ${state.currentVersion}`)
+      } else {
+        setInstallPath('')
+        setInstallRoot(installMetadataForStoreRoot(selectedGame, selectedGame.install, preferences.defaultLibraryRoot).defaultInstallFolder)
+        setHasScanned(false)
+        setScanStatus('No install found')
+      }
+    })
+    return () => {
+      disposed = true
+    }
+  }, [installStates, preferences.defaultLibraryRoot, selectedGame])
+
+  useEffect(() => {
+    versionPlanSequenceRef.current += 1
+    if (versionPlanTimerRef.current !== null) {
+      window.clearTimeout(versionPlanTimerRef.current)
+      versionPlanTimerRef.current = null
+    }
+    setSelectedVersion('')
+    setIsStartingDownload(false)
+    // The Install/versions button awaits a Backup Game preflight before it can
+    // open the dialog. `selectedGame` can settle from null to an object during
+    // that await, which re-fires this effect and used to close the dialog the
+    // instant it opened. Skip the reset while a user-initiated open is in
+    // flight (or was just requested) and only reset on a real game change.
+    if (installOptionsOpenRequestRef.current === 0) {
+      setShowInstallOptions(false)
+    }
+  }, [selectedGame?.id])
+
+  // Scale mode: selected game assets are urgent; browse cards request their
+  // thumbnails only when they become visible. This avoids reading every .0xo
+  // image at launcher startup.
+  useEffect(() => {
+    if (!isTauriRuntime() || catalog.games.length === 0 || !selectedGameId) return
+    const selected = catalog.games.find((game) => game.id === selectedGameId)
+    if (!selected) return
+      ;[selected.heroAssetId, selected.logoAssetId, selected.iconAssetId, selected.gridAssetId].forEach((assetId) => {
+        requestGameAsset(selected, assetId, true)
+      })
+  }, [catalog.games, requestGameAsset, selectedGameId])
+
+  useEffect(() => {
+    if (!selectedGame || !activeDetail) {
+      return
+    }
+    const ids = collectAssetIds(selectedGame)
+    for (const assetId of ids) {
+      requestGameAsset(selectedGame, assetId, true)
+    }
+  }, [activeDetail, requestGameAsset, selectedGame])
+
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return
+    }
+
+    let disposed = false
+    const snapshotTimer = window.setTimeout(() => {
+      invoke<Snapshot>('get_launcher_snapshot')
+        .then((next) => {
+          if (disposed) return
+          const initialJob = next.lastJob?.status === 'committed' ? null : next.lastJob
+          setSnapshot(initialJob === next.lastJob ? next : { ...next, lastJob: null })
+          setJob(initialJob)
+          if (next.lastJob?.status === 'committed') {
+            // A launcher restart can happen before the short success timeout fires.
+            // Terminal recovery metadata must never reappear as an active transfer.
+            void invoke('clear_job_journal').catch(() => undefined)
+          }
+          if (initialJob?.kind === 'patch') {
+            setActiveTab('Downloads')
+          }
+          if (next.detectedInstallPath && next.gameId === selectedGameIdRef.current) {
+            setInstallPath(next.detectedInstallPath)
+            setInstallRoot(next.detectedInstallPath)
+            setHasScanned(next.currentVersion !== 'unknown' && next.currentVersion !== 'not installed')
+            setScanStatus(`0xoLemon store install recognized (${next.currentVersion})`)
+          }
+        })
+        .catch(() => {
+          if (!disposed) setSnapshot(fallbackSnapshot)
+        })
+    }, 250)
+
+    let unsubscribe: (() => void) | undefined
+    let unsubscribeJobCleared: (() => void) | undefined
+    let unsubscribeDownloadTelemetry: (() => void) | undefined
+    listen<JobJournal>('launcher://job', (event) => {
+      const nextJob = event.payload
+      if (canceledJobIdRef.current === nextJob.id) {
+        return
+      }
+      if (canceledJobIdRef.current && canceledJobIdRef.current !== nextJob.id) {
+        canceledJobIdRef.current = null
+      }
+      latestJobRef.current = nextJob
+      setJob(nextJob)
+      if (nextJob.kind === 'patch' && nextJob.status !== 'canceled') {
+        setActiveTab('Downloads')
+      }
+      // Clear the resume loading state as soon as backend confirms the job is running
+      if (nextJob.status === 'running' || nextJob.status === 'downloading' || nextJob.status === 'assembling') {
+        setIsResuming(false)
+      }
+      if (
+        selectedGameIdRef.current === nextJob.gameId &&
+        nextJob.toVersion &&
+        nextJob.toVersion !== 'unknown'
+      ) {
+        // The job target is authoritative while install/update/repair is active.
+        // Keep the picker on that exact version instead of letting a delayed
+        // planning response or an old marker make the UI jump backwards.
+        setSelectedVersion(nextJob.toVersion)
+      }
+      if (nextJob.status === 'committed') {
+        playInstallCompleteSound(nextJob)
+        const isPatchJob = nextJob.kind === 'patch'
+        if (nextJob.kind === 'install') {
+          void recordSocialStats({
+            eventId: nextJob.id,
+            kind: 'install',
+            downloads: 1,
+            downloadedBytes: Math.max(0, nextJob.bytesDone || nextJob.bytesTotal || 0),
+          }).catch(() => undefined)
+        }
+        const gameTitle =
+          catalogRef.current.games.find((game) => game.id === nextJob.gameId)?.title ??
+          nextJob.gameId
+        void publishNotification({
+          category: 'installs',
+          severity: 'success',
+          title:
+            nextJob.kind === 'install'
+              ? `${gameTitle} installed`
+              : nextJob.kind === 'repair'
+                ? `${gameTitle} repaired`
+                : isPatchJob
+                  ? `${gameTitle} patch applied`
+                  : `${gameTitle} updated`,
+          message: isPatchJob
+            ? `Hotfix for ${nextJob.toVersion} applied successfully.`
+            : `Version ${nextJob.toVersion} committed successfully.`,
+          dedupeKey: `job:${nextJob.id}:committed`,
+          entity: { kind: 'game', id: nextJob.gameId },
+          action: { kind: 'open-game', tab: 'Library', gameId: nextJob.gameId },
+        })
+        setInstallPath(nextJob.installPath)
+        setInstallRoot(nextJob.installPath)
+        setHasScanned(true)
+        setScanStatus(
+          isPatchJob
+            ? `Patch applied to ${nextJob.toVersion}`
+            : `${nextJob.kind === 'install' ? 'Installed' : 'Updated'} ${nextJob.toVersion}`,
+        )
+        setShowInstallOptions(false)
+        setInstallStates((current) => ({
+          ...current,
+          [nextJob.gameId]: {
+            ...current[nextJob.gameId],
+            gameId: nextJob.gameId,
+            installed: true,
+            currentVersion: nextJob.toVersion,
+            installPath: nextJob.installPath,
+            launchExecutable: current[nextJob.gameId]?.launchExecutable ?? '',
+            // For patch jobs, immediately clear the pending-patch indicator so
+            // the UI doesn't keep showing a "patch available" badge after apply.
+            ...(isPatchJob && nextJob.appliedPatchId
+              ? { appliedPatchId: nextJob.appliedPatchId }
+              : {}),
+          },
+        }))
+        window.setTimeout(() => {
+          void refreshInstallState(nextJob.gameId, nextJob.installPath).catch(() => undefined)
+        }, 350)
+        // Keep the success state visible briefly, then remove the terminal job
+        // from Downloads/Updates. A committed journal is recovery metadata, not
+        // an active queue item, regardless of whether it was install/update/patch.
+        window.setTimeout(() => {
+          if (latestJobRef.current?.id === nextJob.id && latestJobRef.current.status === 'committed') {
+            invoke('clear_job_journal')
+              .then(() => {
+                setJob(null)
+                setSnapshot((current) => ({ ...current, lastJob: null }))
+              })
+              .catch(() => undefined)
+          }
+        }, isPatchJob ? 5000 : 6500)
+        // Auto-cache the 4 key image assets for offline use (only remote URLs)
+        window.setTimeout(() => {
+          const installedGame = catalogRef.current.games.find((g) => g.id === nextJob.gameId)
+          if (installedGame && isTauriRuntime()) {
+            const assetIdsToCache = [
+              installedGame.gridAssetId,
+              installedGame.heroAssetId,
+              installedGame.logoAssetId,
+              installedGame.iconAssetId,
+            ].filter((id): id is string => Boolean(id) && (id.startsWith('http://') || id.startsWith('https://')))
+            for (const assetId of assetIdsToCache) {
+              invoke('cache_remote_asset', { url: assetId, gameId: nextJob.gameId, assetId }).catch(() => undefined)
+            }
+          }
+        }, 2000)
+        setSnapshot((current) => ({
+          ...current,
+          gameId: nextJob.gameId,
+          currentVersion: nextJob.toVersion,
+          detectedInstallPath: nextJob.installPath,
+          updateSize: 0,
+          changedFiles: [],
+        }))
+        setVerifyStatus((current) => {
+          if (current?.gameId === nextJob.gameId) {
+            return nextJob.kind === 'repair'
+              ? { ...current, state: 'ok', message: 'Repair completed successfully.', percent: 1 }
+              : null
+          }
+          return current
+        })
+      } else if (nextJob.status === 'failed' || nextJob.status === 'canceled') {
+        const gameTitle =
+          catalogRef.current.games.find((game) => game.id === nextJob.gameId)?.title ??
+          nextJob.gameId
+        void publishNotification({
+          category: nextJob.status === 'failed' ? 'errors' : 'downloads',
+          severity: nextJob.status === 'failed' ? 'error' : 'warning',
+          title: `${titleCase(nextJob.kind)} ${nextJob.status}`,
+          message: `${gameTitle} ${nextJob.kind} job ${nextJob.status}.`,
+          dedupeKey: `job:${nextJob.id}:${nextJob.status}`,
+          entity: { kind: 'job', id: nextJob.id },
+          action: { kind: 'open-downloads', tab: 'Downloads', gameId: nextJob.gameId },
+        })
+        setVerifyStatus((current) => {
+          if (current?.gameId === nextJob.gameId && current.state === 'running') {
+            return {
+              ...current,
+              state: 'failed',
+              message: `Repair ${nextJob.status}.`,
+            }
+          }
+          return current
+        })
+      }
+    }).then((fn) => {
+      if (disposed) {
+        fn()
+      } else {
+        unsubscribe = fn
+      }
+    })
+
+    listen<DownloadTelemetry>('launcher://download-telemetry', (event) => {
+      const telemetry = event.payload
+      if (latestJobRef.current?.id !== telemetry.jobId) return
+      if (downloadTelemetryJobRef.current !== telemetry.jobId) {
+        downloadTelemetryJobRef.current = telemetry.jobId
+        downloadRateWindowRef.current = null
+      }
+      setDownloadRate(Math.max(0, telemetry.wireBytesPerSecond))
+      setApplyRate(Math.max(0, telemetry.applyBytesPerSecond))
+    }).then((fn) => {
+      if (disposed) {
+        fn()
+      } else {
+        unsubscribeDownloadTelemetry = fn
+      }
+    })
+
+    listen('launcher://job-cleared', () => {
+      setJob(null)
+      setDownloadRate(0)
+      setApplyRate(0)
+      downloadRateWindowRef.current = null
+      downloadTelemetryJobRef.current = null
+      setVerifyStatus((current) => (current?.state === 'running' ? null : current))
+    }).then((fn) => {
+      if (disposed) {
+        fn()
+      } else {
+        unsubscribeJobCleared = fn
+      }
+    })
+
+    return () => {
+      disposed = true
+      window.clearTimeout(snapshotTimer)
+      unsubscribe?.()
+      unsubscribeJobCleared?.()
+      unsubscribeDownloadTelemetry?.()
+    }
+  }, [playInstallCompleteSound, publishNotification, refreshInstallState])
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+
+    const canResumeInterruptedJob = (current: JobJournal | null) => {
+      if (!current || current.id !== offlineInterruptedJobIdRef.current) return false
+      if (!['install', 'update', 'repair', 'patch'].includes(current.kind)) return false
+      return current.status === 'paused' || current.status === 'failed'
+    }
+
+    const resumeInterruptedJob = async () => {
+      const current = latestJobRef.current
+      if (!canResumeInterruptedJob(current)) return
+      if (autoResumeInFlightRef.current && autoResumeJobIdRef.current === current?.id) return
+
+      autoResumeInFlightRef.current = true
+      autoResumeJobIdRef.current = current?.id ?? null
+      try {
+        await invoke('resume_job')
+        offlineInterruptedJobIdRef.current = null
+        setJob((state) => (state ? { ...state, status: 'running', phase: state.phase || 'Download packs' } : state))
+        setScanStatus('Network restored, resuming the interrupted transfer...')
+      } catch (error) {
+        setScanStatus(`Network restored, but resume failed: ${String(error)}`)
+      } finally {
+        autoResumeInFlightRef.current = false
+      }
+    }
+
+    const handleOnline = () => {
+      setIsOnline(true)
+      setOfflineModeEnabled(false)
+      void resumeInterruptedJob()
+      void refreshDiscordAccess(true)
+    }
+
+    const handleOffline = () => {
+      setIsOnline(false)
+      const current = latestJobRef.current
+      if (current && ['running', 'downloading', 'assembling'].includes(current.status)) {
+        offlineInterruptedJobIdRef.current = current.id
+        setScanStatus('Network lost; this transfer will resume when the connection returns.')
+      }
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [refreshDiscordAccess])
+
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return
+    }
+
+    let disposed = false
+    let unsubscribe: (() => void) | undefined
+    listen<VerifyProgressPayload>('launcher://verify-progress', (event) => {
+      const progress = event.payload
+      setVerifyStatus((current) => {
+        const finalState =
+          progress.phase === 'Verified' ? 'ok' : progress.phase === 'Verify failed' ? 'failed' : null
+        const message = finalState
+          ? progress.phase
+          : `${progress.phase}: ${progress.checkedFiles}/${progress.totalFiles} files`
+        return {
+          gameId: progress.gameId,
+          state: finalState ?? 'running',
+          message:
+            finalState && current?.gameId === progress.gameId && current.state !== 'running'
+              ? current.message
+              : message,
+          percent: progress.percent,
+          currentFile: progress.currentFile,
+          checkedFiles: progress.checkedFiles,
+          totalFiles: progress.totalFiles,
+          checkedBytes: progress.checkedBytes,
+          totalBytes: progress.totalBytes,
+          missingFiles: current?.gameId === progress.gameId ? current.missingFiles : undefined,
+          mismatchedFiles: current?.gameId === progress.gameId ? current.mismatchedFiles : undefined,
+        }
+      })
+    }).then((fn) => {
+      if (disposed) {
+        fn()
+      } else {
+        unsubscribe = fn
+      }
+    })
+
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
+  }, [])
+
+  const activeJob = job ?? createIdleJob(snapshot)
+  latestJobRef.current = activeJob
+
+  useEffect(() => {
+    // Track download rate for both regular downloads and patch downloads
+    const isActiveDownload =
+      activeJob.status === 'downloading' ||
+      (activeJob.kind === 'patch' && activeJob.status === 'running' && activeJob.bytesTotal > 0)
+    if (!isActiveDownload) {
+      downloadRateWindowRef.current = null
+      downloadTelemetryJobRef.current = null
+      setDownloadRate(0)
+      setApplyRate(0)
+      return
+    }
+
+    if (activeJob.pipelineVersion?.startsWith('transport-pipeline-v3')) {
+      downloadRateWindowRef.current = null
+      return
+    }
+
+    const sampleWindowMs = 10_000
+    const tick = () => {
+      const current = latestJobRef.current
+      const isCurrentDownloading =
+        current?.status === 'downloading' ||
+        (current?.kind === 'patch' && current?.status === 'running' && (current?.bytesTotal ?? 0) > 0)
+      if (!current || !isCurrentDownloading || current.id !== activeJob.id) {
+        return
+      }
+
+      const now = performance.now()
+      let windowState = downloadRateWindowRef.current
+      if (!windowState || windowState.jobId !== current.id) {
+        windowState = { jobId: current.id, points: [] }
+      }
+
+      const lastPoint = windowState.points[windowState.points.length - 1]
+      const currentNetworkBytes =
+        current.pipelineVersion === 'transport-pipeline-v3'
+          ? (current.wireBytesDone ?? 0)
+          : current.bytesDone
+      const currentApplyBytes = current.applyBytesDone ?? 0
+      if (
+        !lastPoint ||
+        currentNetworkBytes !== lastPoint.bytesDone ||
+        currentApplyBytes !== lastPoint.applyBytesDone ||
+        now - lastPoint.at >= 900
+      ) {
+        windowState.points.push({
+          bytesDone: currentNetworkBytes,
+          applyBytesDone: currentApplyBytes,
+          at: now,
+        })
+      }
+      windowState.points = windowState.points.filter((point) => now - point.at <= sampleWindowMs)
+      if (windowState.points.length > 12) {
+        windowState.points.splice(0, windowState.points.length - 12)
+      }
+      downloadRateWindowRef.current = windowState
+
+      const first = windowState.points[0]
+      const last = windowState.points[windowState.points.length - 1]
+      const elapsedMs = last && first ? last.at - first.at : 0
+      const transferred = last && first ? Math.max(last.bytesDone - first.bytesDone, 0) : 0
+      const applied = last && first
+        ? Math.max(last.applyBytesDone - first.applyBytesDone, 0)
+        : 0
+      setDownloadRate(elapsedMs >= 900 ? (transferred * 1000) / elapsedMs : 0)
+      setApplyRate(elapsedMs >= 900 ? (applied * 1000) / elapsedMs : 0)
+    }
+
+    tick()
+    const timer = window.setInterval(tick, 1000)
+    return () => window.clearInterval(timer)
+  }, [activeJob.bytesTotal, activeJob.id, activeJob.kind, activeJob.pipelineVersion, activeJob.status])
+
+  const isPatchDownloading =
+    activeJob.kind === 'patch' &&
+    activeJob.status === 'running' &&
+    activeJob.bytesTotal > 0
+  const phaseProgress = getPhaseProgress(
+    activeJob,
+    (activeJob.status === 'downloading' || isPatchDownloading) ? downloadRate : 0,
+    applyRate,
+  )
+  const progress = phaseProgress.percent
+  const hasVisibleJob =
+    job !== null && (activeJob.status !== 'committed' || activeJob.kind === 'patch')
+  const activeJobGame = catalog.games.find((game) => game.id === activeJob.gameId) ?? null
+  const activeJobArtwork = assetUrlForId(activeJobGame?.gridAssetId, assetUrls)
+  const showTransferDock =
+    hasVisibleJob &&
+    activeTab !== 'Downloads' &&
+    ['running', 'downloading', 'assembling', 'paused'].includes(activeJob.status)
+  const isDefaultGame = selectedGame?.id === DEFAULT_GAME_ID
+  const selectedInstallState = selectedGame ? installStates[selectedGame.id] : undefined
+  const isDepotInstalled = Boolean(selectedInstallState?.installed && selectedInstallState?.installSource === 'depot')
+  const isBackupInstalled = Boolean(selectedInstallState?.installed && selectedInstallState?.installSource === 'backup')
+  const selectedInstalled = activeTab === 'Backup Game'
+    ? isBackupInstalled
+    : Boolean(selectedInstallState?.installed)
+  const selectedInstallBlocked = ['recovering', 'conflict', 'unavailable'].includes(selectedInstallState?.discoveryStatus ?? '')
+  const gameInstall = useMemo(
+    () => installMetadataForStoreRoot(selectedGame, activeDetail?.install ?? selectedGame?.install ?? fallbackInstall, preferences.defaultLibraryRoot),
+    [activeDetail?.install, preferences.defaultLibraryRoot, selectedGame],
+  )
+  const selectedInstallPath = selectedInstalled
+    ? selectedInstallState?.installPath || gameInstall.defaultInstallFolder
+    : (activeTab !== 'Backup Game' && isDepotInstalled && selectedInstallState?.installPath)
+      ? selectedInstallState.installPath
+      : gameInstall.defaultInstallFolder
+  const selectedCurrentVersion = (selectedInstalled || isDepotInstalled) ? selectedInstallState?.currentVersion ?? 'installed' : 'not installed'
+  const selectedVerifyStatus = selectedGame && verifyStatus?.gameId === selectedGame.id ? verifyStatus : null
+  const snapshotBelongsToSelectedGame = Boolean(selectedGame?.id && snapshot.gameId === selectedGame.id)
+  const availableVersions = selectedGame ? versionOptions(snapshot, selectedGame, isDefaultGame) : []
+  const mergedVersionInfos = useMemo(() => {
+    const tagMap = new Map<string, string[]>()
+    const winTags = (typeof window !== 'undefined' && window.globalVersionTags) || {}
+    if (selectedGame?.id && winTags[selectedGame.id]) {
+      Object.entries(winTags[selectedGame.id]).forEach(([ver, tags]) => {
+        tagMap.set(ver, tags as string[])
+
+        // Helper to get clean version
+        const getCleanInline = (verStr: string) => {
+          if (!verStr) return ''
+          const c = verStr.replace(/\s*-\s*Uploaded.*$/, '').trim()
+          return c.replace(/\s*\(Build\b.*$/i, '').trim()
+        }
+        tagMap.set(getCleanInline(ver), tags as string[])
+      })
+    }
+
+    if (selectedGame?.availableVersions) {
+      selectedGame.availableVersions.forEach((v) => {
+        if (v && v.tags) {
+          if (v.version) tagMap.set(v.version, v.tags)
+          if (v.label) tagMap.set(v.label, v.tags)
+          if (v.buildId) tagMap.set(v.buildId, v.tags)
+        }
+      })
+    }
+
+    // Helper to get clean version
+    const getClean = (verStr: string) => {
+      if (!verStr) return ''
+      const c = verStr.replace(/\s*-\s*Uploaded.*$/, '').trim()
+      return c.replace(/\s*\(Build\b.*$/i, '').trim()
+    }
+
+    const detailVersions = activeDetail?.versions || []
+    const hfVersions: string[] = snapshotBelongsToSelectedGame ? (snapshot.availableVersions || []) : []
+
+    // If the catalog explicitly lists versions, ONLY show those versions
+    if (selectedGame?.availableVersions && selectedGame.availableVersions.length > 0) {
+      return selectedGame.availableVersions.map((catalogVer): GameVersionInfo => {
+        const catStr = catalogVer.version || ''
+        const catClean = getClean(catStr)
+
+        // Find matching rich string in detailVersions (usually provides sizeBytes)
+        const richMatch = detailVersions.find((dv) => {
+          const dvStr = dv.version || ''
+          return getClean(dvStr) === catClean
+        })
+
+        // Find matching string in snapshot versions (provides original buildId string)
+        const hfMatch = hfVersions.find((hv) => getClean(hv) === catClean)
+
+        let baseVer: GameVersionInfo = catalogVer
+        let trueVersion = catalogVer.version
+        if (hfMatch) {
+          trueVersion = hfMatch
+          baseVer = { ...catalogVer, version: trueVersion }
+        }
+        if (richMatch) {
+          baseVer = { ...baseVer, ...richMatch, version: trueVersion }
+        }
+
+        const baseStr = baseVer.version || ''
+        const tags = tagMap.get(baseStr) || tagMap.get(getClean(baseStr)) || tagMap.get(baseVer.buildId || '') || tagMap.get(baseVer.label || '')
+        return tags ? { ...baseVer, tags } : baseVer
+      })
+    }
+
+    // Fallback: if catalog has no explicitly listed versions, show everything from depot
+    const merged = [...detailVersions]
+
+    return merged.map((v) => {
+      const strVer = v.version || ''
+      const cleanVer = getClean(strVer)
+      const tags = tagMap.get(strVer) || tagMap.get(v.label) || tagMap.get(v.buildId) || tagMap.get(cleanVer)
+      return tags ? { ...v, tags } : v
+    })
+  }, [activeDetail, selectedGame?.availableVersions, selectedGame?.id, snapshot.availableVersions, snapshotBelongsToSelectedGame])
+  const latestCatalogVersion =
+    selectedGame?.availableVersions.find((version) => version.latest)?.version ||
+    activeDetail?.versions.find((version) => version.latest)?.version ||
+    (selectedGame?.availableVersions.length === 1 ? selectedGame.availableVersions[0].version : '') ||
+    (activeDetail?.versions.length === 1 ? activeDetail.versions[0].version : '') ||
+    selectedGame?.latestVersion ||
+    availableVersions[availableVersions.length - 1] ||
+    'unknown'
+  const fallbackTargetVersion = isDefaultGame && snapshotBelongsToSelectedGame && availableVersions.includes(snapshot.latestVersion)
+    ? snapshot.latestVersion
+    : latestCatalogVersion !== 'unknown'
+      ? latestCatalogVersion
+      : availableVersions[availableVersions.length - 1] || 'select game'
+  const versionNumericCore = (v: string) => {
+    const s = v.trim().toLowerCase().replace(/^v/, '')
+    let result = ''
+    let sawDigit = false
+    let lastWasSep = false
+    for (const ch of s) {
+      if (/\d/.test(ch)) { result += ch; sawDigit = true; lastWasSep = false }
+      else if (sawDigit && /[.\-_]/.test(ch)) { if (!lastWasSep) { result += ch; lastWasSep = true } }
+      else if (sawDigit) { break }
+      else if (!/\s/.test(ch)) { result = ''; break }
+    }
+    while (result.endsWith('.') || result.endsWith('-') || result.endsWith('_')) result = result.slice(0, -1)
+    return sawDigit ? result : ''
+  }
+  const findVersionInList = (list: string[], ver: string): string | undefined => {
+    if (list.includes(ver)) return ver
+    const core = versionNumericCore(ver)
+    if (!core) return undefined
+    const matches = list.filter(v => versionNumericCore(v) === core)
+    return matches.length === 1 ? matches[0] : undefined
+  }
+  const resolvedSelectedVersion = selectedVersion ? findVersionInList(availableVersions, selectedVersion) : undefined
+  const requestedTargetVersion = resolvedSelectedVersion ?? fallbackTargetVersion
+  // Keep the selected target for both fresh installs and installed games. This
+  // allows the same version picker to perform upgrades, reinstalls and downgrades.
+  const targetVersion = requestedTargetVersion
+  const selectedVersionInfo =
+    selectedGame?.availableVersions.find((version) => version.version === targetVersion) ??
+    activeDetail?.versions.find((version) => version.version === targetVersion)
+  const installMode = !selectedInstalled
+  const isInstalledUnknownWithSingleVersion =
+    selectedCurrentVersion === 'installed' && availableVersions.length <= 1
+
+  const updateReady =
+    selectedInstalled &&
+    !selectedInstallBlocked &&
+    selectedCurrentVersion !== 'unknown' &&
+    selectedCurrentVersion !== 'not installed' &&
+    !isInstalledUnknownWithSingleVersion &&
+    latestCatalogVersion !== 'unknown' &&
+    !versionsEquivalent(selectedCurrentVersion, latestCatalogVersion)
+  const isPaused = activeJob.status === 'paused'
+  const [isResuming, setIsResuming] = useState(false)
+  const isRunning = job !== null && ['running', 'downloading', 'assembling', 'paused'].includes(activeJob.status)
+  const hasVersionChoices = availableVersions.length > 1
+  const showVersionAction = selectedInstalled && hasVersionChoices
+  const canUpdate =
+    Boolean(selectedGame && activeDetail) &&
+    !selectedInstallBlocked &&
+    !isRunning &&
+    availableVersions.length > 0 &&
+    targetVersion !== 'unknown' &&
+    targetVersion !== 'select game'
+  const canApplySelectedVersion =
+    canUpdate && (installMode || targetVersion !== selectedCurrentVersion)
+  const effectiveDownloadSize = useMemo(() => {
+    // Only trust snapshot.updateSize if the active job belongs to the current game.
+    // When the user switches games the snapshot may still hold the previous game's size.
+    const activeJobGameId = snapshot.lastJob?.gameId
+    const snapshotBelongsToGame =
+      snapshot.updateSize > 0 &&
+      selectedGame?.id &&
+      snapshotBelongsToSelectedGame &&
+      (!activeJobGameId || activeJobGameId === selectedGame.id)
+    if (snapshotBelongsToGame) return snapshot.updateSize
+    return selectedVersionInfo?.sizeBytes ?? activeDetail?.versions?.[0]?.sizeBytes ?? 0
+
+  }, [snapshot.updateSize, snapshot.lastJob?.gameId, snapshotBelongsToSelectedGame, selectedGame?.id, selectedVersionInfo?.sizeBytes, activeDetail?.versions])
+  const displayedInstallTarget =
+    selectedInstalled
+      ? selectedInstallPath
+      : hasVisibleJob && activeJob.installPath
+        ? activeJob.installPath
+        : installRoot || gameInstall.defaultInstallFolder
+
+  const refreshCloudSaveStatus = useCallback(async (gameId: string) => {
+    if (!isTauriRuntime()) {
+      setCloudSaveStatus(null)
+      return
+    }
+    try {
+      const status = await invoke<CloudSaveStatus>('get_cloud_save_status', { gameId })
+      setCloudSaveStatus(status)
+      setCloudLaunchBlocked(status.conflicts.length > 0)
+    } catch (error) {
+      setCloudSaveStatus(null)
+      setScanStatus(t.cloudSave.loadError.replace('{error}', String(error)))
+    }
+  }, [t.cloudSave.loadError])
+
+  useEffect(() => {
+    if ((activeTab !== 'Library' && activeTab !== 'Store') || !selectedGame || !selectedInstalled) {
+      queueMicrotask(() => {
+        setCloudSaveStatus(null)
+        setCloudLaunchBlocked(false)
+      })
+      return
+    }
+    queueMicrotask(() => void refreshCloudSaveStatus(selectedGame.id))
+  }, [activeTab, refreshCloudSaveStatus, selectedGame, selectedInstalled])
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    let disposed = false
+    let unlistenStatus: (() => void) | undefined
+    let unlistenError: (() => void) | undefined
+    let unlistenMap: (() => void) | undefined
+    let unlistenAuth: (() => void) | undefined
+
+    listen<{ gameId: string; status: CloudSaveStatus }>('launcher://cloud-save', (event) => {
+      if (disposed) return
+      if (event.payload.gameId === selectedGameIdRef.current) {
+        setCloudSaveStatus(event.payload.status)
+        setCloudLaunchBlocked(event.payload.status.conflicts.length > 0)
+      }
+      if (event.payload.status.conflicts.length > 0) {
+        void publishNotification({
+          category: 'cloudSaves',
+          severity: 'warning',
+          title: t.cloudSave.conflictNotificationTitle,
+          message: t.cloudSave.conflictNotificationMessage.replace('{count}', String(event.payload.status.conflicts.length)),
+          dedupeKey: `cloud-conflict:${event.payload.gameId}:${event.payload.status.conflicts.map((item) => item.id).join(',')}`,
+          entity: { kind: 'game', id: event.payload.gameId },
+          action: { kind: 'open-cloud-save', tab: 'Library', gameId: event.payload.gameId },
+        })
+      }
+    }).then((dispose) => {
+      if (disposed) dispose()
+      else unlistenStatus = dispose
+    })
+
+    listen<{ updated: boolean; activeVersion: string; source: string; message: string }>('launcher://cloud-save-map', (event) => {
+      if (disposed || !event.payload.updated) return
+      void publishNotification({
+        category: 'cloudSaves',
+        severity: 'info',
+        title: t.cloudSave.mapUpdatedTitle,
+        message: t.cloudSave.mapUpdatedMessage.replace('{version}', event.payload.activeVersion),
+        dedupeKey: `cloud-map:${event.payload.activeVersion}`,
+        entity: { kind: 'launcher', id: 'cloud-save-map' },
+        action: null,
+      })
+    }).then((dispose) => {
+      if (disposed) dispose()
+      else unlistenMap = dispose
+    })
+
+    listen<{ connected: boolean }>('launcher://cloud-save-auth-changed', () => {
+      if (disposed) return
+      const gameId = selectedGameIdRef.current
+      if (gameId) void refreshCloudSaveStatus(gameId)
+    }).then((dispose) => {
+      if (disposed) dispose()
+      else unlistenAuth = dispose
+    })
+
+    listen<{ gameId: string; message: string }>('launcher://cloud-save-error', (event) => {
+      if (disposed) return
+      if (event.payload.gameId === selectedGameIdRef.current) setScanStatus(event.payload.message)
+      const needsAction = /conflict|há»ng|corrupt|má»›i hÆ¡n/i.test(event.payload.message)
+      void publishNotification({
+        category: 'cloudSaves',
+        severity: needsAction ? 'warning' : 'info',
+        title: needsAction ? t.cloudSave.attentionNotificationTitle : t.cloudSave.waitingNotificationTitle,
+        message: event.payload.message,
+        dedupeKey: `cloud-error:${event.payload.gameId}:${event.payload.message}`,
+        entity: { kind: 'game', id: event.payload.gameId },
+        action: { kind: 'open-cloud-save', tab: 'Library', gameId: event.payload.gameId },
+      })
+    }).then((dispose) => {
+      if (disposed) dispose()
+      else unlistenError = dispose
+    })
+
+    return () => {
+      disposed = true
+      unlistenStatus?.()
+      unlistenError?.()
+      unlistenMap?.()
+      unlistenAuth?.()
+    }
+  }, [
+    publishNotification,
+    refreshCloudSaveStatus,
+    t.cloudSave.attentionNotificationTitle,
+    t.cloudSave.conflictNotificationMessage,
+    t.cloudSave.conflictNotificationTitle,
+    t.cloudSave.mapUpdatedMessage,
+    t.cloudSave.mapUpdatedTitle,
+    t.cloudSave.waitingNotificationTitle,
+  ])
+
+  async function chooseInstallFolder() {
+    if (!isTauriRuntime()) {
+      setScanStatus('Folder picker requires desktop shell')
+      return
+    }
+
+    try {
+      const selected = await open({ directory: true, multiple: false, title: `Select ${selectedGame?.title ?? 'game'} folder` })
+      if (typeof selected === 'string') {
+        setInstallPath(selected)
+        await scanFolder(selected)
+      }
+    } catch {
+      setScanStatus('Folder picker unavailable')
+    }
+  }
+
+  async function scanFolder(path = installPath) {
+    if (!selectedGame) {
+      setScanStatus('Select a game first')
+      setHasScanned(false)
+      return
+    }
+    if (!path) {
+      setScanStatus('Choose the game folder first')
+      setHasScanned(false)
+      return
+    }
+
+    if (!isTauriRuntime()) {
+      setScanStatus('Browser preview cannot scan local game files')
+      return
+    }
+
+    const gameId = selectedGame.id
+    try {
+      const [report, planned] = await Promise.all([
+        invoke<{ fileCount: number; detectedVersion?: string | null; warnings: string[] }>('scan_install', {
+          path,
+        }),
+        invoke<Snapshot>('plan_install_update', { path, targetVersion: null, gameId }),
+      ])
+      const plannedVersion =
+        planned.currentVersion !== 'unknown' && planned.currentVersion !== 'not installed'
+          ? planned.currentVersion
+          : report.detectedVersion
+      if (selectedGameIdRef.current !== gameId || (planned.gameId && planned.gameId !== gameId)) {
+        return
+      }
+      const versionLabel = plannedVersion ? `installed ${plannedVersion}` : 'version state not found'
+      setScanStatus(`${report.fileCount} files, ${versionLabel}`)
+      setSnapshot(planned)
+      setJob(planned.lastJob)
+      setHasScanned(Boolean(plannedVersion))
+    } catch (error) {
+      if (selectedGameIdRef.current !== gameId) {
+        return
+      }
+      setScanStatus(String(error))
+      setHasScanned(false)
+    }
+  }
+
+  function changeTargetVersion(version: string) {
+    if (!selectedGame) {
+      setScanStatus('Select a game first')
+      return
+    }
+    const gameId = selectedGame.id
+    const requestSequence = ++versionPlanSequenceRef.current
+    setSelectedVersion(version)
+    if (!isTauriRuntime()) {
+      return
+    }
+
+    if (versionPlanTimerRef.current !== null) {
+      window.clearTimeout(versionPlanTimerRef.current)
+    }
+
+    // Keep the previous plan visible while the user is still choosing. This
+    // prevents a version picker from triggering a new depot/staging scan for
+    // every intermediate selection.
+    versionPlanTimerRef.current = window.setTimeout(() => {
+      versionPlanTimerRef.current = null
+      void (async () => {
+        try {
+          const planned = selectedInstalled
+            ? await invoke<Snapshot>('plan_install_update', {
+              path: selectedInstallPath,
+              targetVersion: version,
+              gameId,
+            })
+            : await invoke<Snapshot>('plan_fresh_install', { targetVersion: version, gameId })
+          if (
+            requestSequence !== versionPlanSequenceRef.current ||
+            selectedGameIdRef.current !== gameId ||
+            (planned.gameId && planned.gameId !== gameId)
+          ) {
+            return
+          }
+          setSnapshot(planned)
+          // Only update job from plan if there's no active job running.
+          // This prevents a stale plan response from nullifying an active download.
+          if (planned.lastJob || !job) {
+            setJob(planned.lastJob)
+          }
+        } catch (error) {
+          const message = backupContentErrorMessage(error) || String(error)
+          if (message.toLowerCase().includes('job canceled')) {
+            return
+          }
+          if (
+            requestSequence === versionPlanSequenceRef.current &&
+            selectedGameIdRef.current === gameId
+          ) {
+            setScanStatus(message)
+          }
+        }
+      })()
+    }, 250)
+  }
+
+  function chooseInstallTarget() {
+    setShowDrivePicker(true)
+  }
+
+  function applyLibraryDrive(driveLetter: string) {
+    // driveLetter is e.g. "E:" or "C:"
+    const drivePath = driveLetter.replace(/\\+$/, '')
+    const gameName = selectedGame ? gameFolderName(selectedGame) : '007 First Light'
+    const newRoot = `${drivePath}\\0xoLemon store\\common\\${gameName}`
+    setInstallRoot(newRoot)
+    setShowDrivePicker(false)
+  }
+
+  async function addLibraryDrive() {
+    try {
+      const selected = await open({ directory: true, multiple: false, title: 'Select a drive or folder to add as library' })
+      if (typeof selected === 'string') {
+        // Normalise to drive root if user selected root
+        const drive = selected.match(/^([A-Za-z]:)/)?.[1] ?? selected
+        const driveLetter = `${drive.toUpperCase().charAt(0)}:`
+        if (!libraries.includes(driveLetter)) {
+          const next = [...libraries, driveLetter]
+          setLibraries(next)
+          localStorage.setItem('0xo_libraries', JSON.stringify(next))
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  function updatePreference<K extends keyof LauncherPreferences>(key: K, value: LauncherPreferences[K]) {
+    if (key === 'windowsNotifications' && value === true) {
+      void enableWindowsNotifications()
+      return
+    }
+
+    if (key === 'uiTheme') {
+      const next = { ...preferencesRef.current, uiTheme: value as LauncherPreferences['uiTheme'] }
+      preferencesRef.current = next
+      saveLauncherPreferences(next)
+      setPreferences(next)
+
+      if (value !== sessionUiTheme) {
+        if (isTauriRuntime()) {
+          void invoke('restart_launcher').catch((error) => {
+            setSettingsUpdateStatus(`Could not restart launcher: ${String(error)}`)
+          })
+        } else if (typeof window !== 'undefined') {
+          window.location.reload()
+        }
+      }
+      return
+    }
+
+    setPreferences((current) => ({ ...current, [key]: value }))
+  }
+
+  async function updateLauncherSetting<K extends keyof LauncherSettings>(
+    key: K,
+    value: LauncherSettings[K],
+  ) {
+    const profilePreset =
+      key === 'downloadProfile'
+        ? value === 'eco'
+          ? { downloadWorkers: 4, downloadQueueMb: 64 }
+          : value === 'turbo'
+            ? { downloadWorkers: 24, downloadQueueMb: 256 }
+            : value === 'balanced'
+              ? { downloadWorkers: 12, downloadQueueMb: 128 }
+              : { downloadWorkers: 16, downloadQueueMb: 192 }
+        : {}
+    const next = { ...launcherSettings, [key]: value, ...profilePreset }
+    setLauncherSettings(next)
+    if (!isTauriRuntime()) return
+    try {
+      const saved = await invoke<LauncherSettings>('set_launcher_settings', { settings: next })
+      setLauncherSettings(saved)
+      setSettingsUpdateStatus('Launcher settings saved.')
+    } catch (error) {
+      setSettingsUpdateStatus(`Could not save downloader settings: ${String(error)}`)
+    }
+  }
+
+  async function chooseDefaultLibraryRoot() {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: 'Choose default game library',
+        defaultPath: preferences.defaultLibraryRoot,
+      })
+      if (typeof selected !== 'string') return
+      const root = selected.trim().replace(/[\\/]+$/, '') || DEFAULT_STORE_ROOT
+      updatePreference('defaultLibraryRoot', root)
+      await updateLauncherSetting('defaultLibrary', root)
+      if (isTauriRuntime()) {
+        await invoke('register_library_root', { path: root })
+      }
+      setSettingsUpdateStatus(`Default library changed to ${root}`)
+
+      const drive = root.match(/^([A-Za-z]:)/)?.[1]?.toUpperCase()
+      if (drive && !libraries.includes(drive)) {
+        const next = [...libraries, drive]
+        setLibraries(next)
+        localStorage.setItem('0xo_libraries', JSON.stringify(next))
+      }
+
+      if (selectedGame && !selectedInstalled) {
+        setInstallRoot(installMetadataForStoreRoot(selectedGame, activeDetail?.install ?? selectedGame.install, root).defaultInstallFolder)
+      }
+    } catch (error) {
+      setSettingsUpdateStatus(`Could not change library: ${String(error)}`)
+    }
+  }
+
+  async function locateExistingLibrary() {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: 'Locate an existing 0xoLemon library',
+        defaultPath: launcherSettings.defaultLibrary || preferences.defaultLibraryRoot,
+      })
+      if (typeof selected !== 'string') return
+      setInstallDiscoveryBusy(true)
+      await invoke('register_library_root', { path: selected })
+      localStorage.setItem('0xo_install_recovery_prompt_v1', '1')
+      setShowLocateLibraryPrompt(false)
+      installDiscoveryCatalogRef.current = ''
+      await runInstallDiscovery(catalog.games.map((game) => game.id))
+    } catch (error) {
+      setScanStatus(`Could not inspect the selected library: ${String(error)}`)
+    } finally {
+      setInstallDiscoveryBusy(false)
+    }
+  }
+
+  async function resolveInstallConflict(gameId: string, installPath: string) {
+    try {
+      setInstallDiscoveryBusy(true)
+      await invoke('resolve_install_conflict', { gameId, installPath })
+      installDiscoveryCatalogRef.current = ''
+      await runInstallDiscovery(catalog.games.map((game) => game.id))
+    } catch (error) {
+      setScanStatus(`Could not register ${installPath}: ${String(error)}`)
+    } finally {
+      setInstallDiscoveryBusy(false)
+    }
+  }
+
+  function closeInstallRecovery() {
+    setShowInstallRecovery(false)
+  }
+
+  function dismissLocateLibraryPrompt() {
+    localStorage.setItem('0xo_install_recovery_prompt_v1', '1')
+    setShowLocateLibraryPrompt(false)
+  }
+
+  async function openDefaultLibraryRoot() {
+    if (!isTauriRuntime()) {
+      setSettingsUpdateStatus(preferences.defaultLibraryRoot)
+      return
+    }
+    try {
+      await invoke('open_folder', { path: preferences.defaultLibraryRoot })
+    } catch (error) {
+      setSettingsUpdateStatus(`Could not open library: ${String(error)}`)
+    }
+  }
+
+  async function chooseCloudSaveRoot() {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: 'Choose synchronized cloud save folder',
+        defaultPath: launcherSettings.cloudSaveRoot || undefined,
+      })
+      if (typeof selected !== 'string') return
+      await updateLauncherSetting('cloudSaveRoot', selected.trim().replace(/[\\/]+$/, ''))
+      setSettingsUpdateStatus('Cloud save provider folder saved.')
+      if (selectedGame && selectedInstalled) {
+        await refreshCloudSaveStatus(selectedGame.id)
+      }
+    } catch (error) {
+      setSettingsUpdateStatus(`Could not change cloud save folder: ${String(error)}`)
+    }
+  }
+
+  async function openCloudSaveRoot() {
+    if (!launcherSettings.cloudSaveRoot) return
+    if (!isTauriRuntime()) {
+      setSettingsUpdateStatus(launcherSettings.cloudSaveRoot)
+      return
+    }
+    try {
+      await invoke('open_folder', { path: launcherSettings.cloudSaveRoot })
+    } catch (error) {
+      setSettingsUpdateStatus(`Could not open cloud save folder: ${String(error)}`)
+    }
+  }
+
+  async function saveCloudConfig(enabled: boolean, saveRoots: CloudSaveRoot[]) {
+    if (!selectedGame || !selectedInstalled || !isTauriRuntime()) return
+    setCloudSaveBusy(true)
+    try {
+      const status = await invoke<CloudSaveStatus>('set_cloud_save_config', {
+        gameId: selectedGame.id,
+        enabled,
+        saveRoots,
+        include: cloudSaveStatus?.include ?? activeDetail?.cloudSave.include ?? [],
+        exclude: cloudSaveStatus?.exclude ?? activeDetail?.cloudSave.exclude ?? [],
+      })
+      setCloudSaveStatus(status)
+      setCloudLaunchBlocked(status.conflicts.length > 0)
+      setScanStatus(status.lastMessage)
+    } catch (error) {
+      setScanStatus(`Cloud save configuration failed: ${String(error)}`)
+    } finally {
+      setCloudSaveBusy(false)
+    }
+  }
+
+  async function toggleCloudSave(enabled: boolean) {
+    await saveCloudConfig(enabled, cloudSaveStatus?.saveRoots ?? [])
+  }
+
+  async function addCloudSaveFolder() {
+    if (!selectedGame || !selectedInstalled) return
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: `Choose a save folder for ${selectedGame.title}`,
+      })
+      if (typeof selected !== 'string') return
+      const normalized = selected.trim().replace(/[\\/]+$/, '')
+      if (!normalized) return
+      const currentRoots = cloudSaveStatus?.saveRoots ?? []
+      if (currentRoots.some((root) => root.path.toLowerCase() === normalized.toLowerCase())) {
+        setScanStatus('That save folder is already configured.')
+        return
+      }
+      const label = normalized.split(/[\\/]/).filter(Boolean).pop() ?? normalized
+      await saveCloudConfig(cloudSaveStatus?.enabled ?? false, [...currentRoots, { path: normalized, label }])
+    } catch (error) {
+      setScanStatus(`Could not add save folder: ${String(error)}`)
+    }
+  }
+
+  async function syncCloudSave() {
+    if (!selectedGame || !selectedInstalled || !isTauriRuntime()) return
+    setCloudSaveBusy(true)
+    try {
+      const status = await invoke<CloudSaveStatus>('sync_cloud_save', {
+        gameId: selectedGame.id,
+        direction: null,
+      })
+      setCloudSaveStatus(status)
+      setCloudLaunchBlocked(status.conflicts.length > 0)
+      setScanStatus(status.lastMessage)
+    } catch (error) {
+      setScanStatus(`Cloud save sync failed: ${String(error)}`)
+    } finally {
+      setCloudSaveBusy(false)
+    }
+  }
+
+  async function resolveCloudConflict(conflictId: string, resolution: 'local' | 'cloud') {
+    if (!selectedGame || !isTauriRuntime()) return
+    if (
+      resolution === 'cloud' &&
+      preferences.confirmBeforeCloudRestore &&
+      !window.confirm('Use the cloud copy? The current local save will be preserved as a conflict copy before replacement.')
+    ) {
+      return
+    }
+    setCloudSaveBusy(true)
+    try {
+      const status = await invoke<CloudSaveStatus>('resolve_cloud_save_conflict', {
+        gameId: selectedGame.id,
+        conflictId,
+        resolution,
+      })
+      setCloudSaveStatus(status)
+      setCloudLaunchBlocked(status.conflicts.length > 0)
+      setScanStatus(status.lastMessage)
+      void publishNotification({
+        category: 'cloudSaves',
+        severity: 'success',
+        title: 'Cloud save conflict resolved',
+        message: resolution === 'local' ? 'The local save was kept and uploaded.' : 'The cloud save was restored locally.',
+        dedupeKey: `cloud-conflict:${selectedGame.id}:${conflictId}:resolved:${resolution}`,
+        entity: { kind: 'game', id: selectedGame.id },
+        action: { kind: 'open-cloud-save', tab: 'Library', gameId: selectedGame.id },
+      })
+    } catch (error) {
+      setScanStatus(`Could not resolve cloud save conflict: ${String(error)}`)
+    } finally {
+      setCloudSaveBusy(false)
+    }
+  }
+
+  async function restoreCloudSnapshot(snapshotId: string) {
+    if (!selectedGame || !isTauriRuntime()) return
+    if (
+      preferences.confirmBeforeCloudRestore &&
+      !window.confirm('Restore this cloud-save snapshot? Current local files will be preserved before replacement.')
+    ) {
+      return
+    }
+    setCloudSaveBusy(true)
+    try {
+      const status = await invoke<CloudSaveStatus>('restore_cloud_save_snapshot', {
+        gameId: selectedGame.id,
+        snapshotId,
+      })
+      setCloudSaveStatus(status)
+      setCloudLaunchBlocked(status.conflicts.length > 0)
+      setScanStatus(status.lastMessage)
+      void publishNotification({
+        category: 'cloudSaves',
+        severity: 'success',
+        title: t.cloudSave.snapshotRestoredTitle,
+        message: status.lastMessage || t.cloudSave.snapshotRestoredMessage,
+        dedupeKey: `cloud-snapshot:${selectedGame.id}:${snapshotId}:restored`,
+        entity: { kind: 'game', id: selectedGame.id },
+        action: { kind: 'open-cloud-save', tab: 'Library', gameId: selectedGame.id },
+      })
+    } catch (error) {
+      setScanStatus(t.cloudSave.snapshotRestoreFailed.replace('{error}', String(error)))
+    } finally {
+      setCloudSaveBusy(false)
+    }
+  }
+
+  async function runGoogleDriveAction(
+    command:
+      | 'connect_google_drive'
+      | 'disconnect_google_drive'
+      | 'backup_save_game_to_google_drive'
+      | 'restore_missing_save_files',
+    pendingMessage: string,
+  ) {
+    if (!selectedGame || !selectedInstalled || !isTauriRuntime()) return
+    setCloudSaveBusy(true)
+    setScanStatus(pendingMessage)
+    try {
+      const status = await invoke<CloudSaveStatus>(command, { gameId: selectedGame.id })
+      setCloudSaveStatus(status)
+      setScanStatus(status.googleDriveMessage || status.lastMessage)
+    } catch (error) {
+      setScanStatus(t.cloudSave.operationFailed.replace('{error}', String(error)))
+    } finally {
+      setCloudSaveBusy(false)
+    }
+  }
+
+  async function connectAndBackupGoogleDrive() {
+    if (!selectedGame || !selectedInstalled || !isTauriRuntime()) return
+    setCloudSaveBusy(true)
+    setScanStatus(t.cloudSave.openingBrowser)
+    try {
+      const connected = await invoke<CloudSaveStatus>('connect_google_drive', {
+        gameId: selectedGame.id,
+      })
+      setCloudSaveStatus(connected)
+      setScanStatus(t.cloudSave.authVerified)
+
+      const backedUp = await invoke<CloudSaveStatus>('backup_save_game_to_google_drive', {
+        gameId: selectedGame.id,
+      })
+      setCloudSaveStatus(backedUp)
+      setScanStatus(backedUp.googleDriveMessage || backedUp.lastMessage)
+    } catch (error) {
+      setScanStatus(t.cloudSave.authFailed.replace('{error}', String(error)))
+    } finally {
+      setCloudSaveBusy(false)
+    }
+  }
+
+  async function checkLauncherUpdateNow() {
+    if (!isTauriRuntime()) {
+      setSettingsUpdateStatus('Update checks require the desktop launcher.')
+      return
+    }
+    setSettingsUpdateStatus('Checking for launcher updates...')
+    try {
+      const info = await invoke<LauncherUpdateInfo | null>('check_launcher_update')
+      setLauncherUpdate(info)
+      setSettingsUpdateStatus(info ? `Version ${info.version} is available.` : 'Launcher is up to date.')
+      if (info) {
+        void publishNotification({
+          category: 'launcher',
+          severity: 'info',
+          title: `Launcher ${info.version} is available`,
+          message: 'A signed launcher update is ready to download.',
+          dedupeKey: `launcher-update:${info.version}:available`,
+          entity: { kind: 'launcher-update', id: info.version },
+          action: { kind: 'update-center', tab: null, gameId: null },
+        })
+        setShowUpdateCenter(true)
+      }
+    } catch (error) {
+      setSettingsUpdateStatus(`Update check failed: ${String(error)}`)
+    }
+  }
+
+  async function applyLauncherUpdate() {
+    if (!launcherUpdate || !isTauriRuntime()) return
+    launcherUpdateRateRef.current = []
+    setLauncherUpdateSpeed(0)
+    setLauncherUpdateEta(null)
+    setSettingsUpdateStatus('Preparing signed update...')
+    setLauncherUpdateProgress({
+      version: launcherUpdate.version,
+      phase: 'downloading',
+      downloadedBytes: 0,
+      totalBytes: null,
+      timestamp: new Date().toISOString(),
+      error: null,
+    })
+    setShowUpdateCenter(true)
+    window.localStorage.setItem('0xo_pending_launcher_update', launcherUpdate.version)
+    try {
+      await invoke('apply_launcher_update')
+    } catch (error) {
+      const message = String(error)
+      setSettingsUpdateStatus(`Update failed: ${message}`)
+      setLauncherUpdateProgress((current) => ({
+        version: launcherUpdate.version,
+        phase: 'failed',
+        downloadedBytes: current?.downloadedBytes ?? 0,
+        totalBytes: current?.totalBytes ?? null,
+        timestamp: new Date().toISOString(),
+        error: message,
+      }))
+    }
+  }
+
+  async function openSteamFromSettings(command: 'open_steam' | 'open_steam_big_picture' | 'restart_steam') {
+    if (!isTauriRuntime()) {
+      setSteamSettingsStatus('Steam actions require the desktop launcher.')
+      return
+    }
+    setSteamSettingsStatus(
+      command === 'open_steam' ? 'Opening Steam...' :
+        command === 'restart_steam' ? 'Restarting Steam...' :
+          'Opening Steam Big Picture...'
+    )
+    try {
+      if (command === 'restart_steam') {
+        const report = await invoke<{ wasRunning: boolean; forced: boolean; running: boolean; message: string }>('restart_steam')
+        setSteamSettingsStatus(report.message)
+      } else {
+        await invoke(command)
+      }
+      window.setTimeout(() => void refreshSteamEnvironment(), 1800)
+    } catch (error) {
+      setSteamSettingsStatus(`Steam action failed: ${String(error)}`)
+    }
+  }
+
+  function resetLauncherPreferences() {
+    const defaults = { ...DEFAULT_LAUNCHER_PREFERENCES }
+    setPreferences(defaults)
+    setLauncherSettings(defaultLauncherSettings)
+    if (isTauriRuntime()) {
+      void invoke<LauncherSettings>('set_launcher_settings', { settings: defaultLauncherSettings })
+        .then(setLauncherSettings)
+        .catch((error) => setSettingsUpdateStatus(`Could not reset downloader settings: ${String(error)}`))
+    }
+    setSettingsUpdateStatus('Default launcher settings restored.')
+    if (selectedGame && !selectedInstalled) {
+      setInstallRoot(
+        installMetadataForStoreRoot(
+          selectedGame,
+          activeDetail?.install ?? selectedGame.install,
+          defaults.defaultLibraryRoot,
+        ).defaultInstallFolder,
+      )
+    }
+  }
+
+  async function openVersionOptions() {
+    if (!selectedGame || !activeDetail) {
+      setScanStatus('Select a game first')
+      return
+    }
+    if (selectedInstallBlocked) {
+      setScanStatus(selectedInstallState?.unavailableReason || 'Resolve the existing install location before changing versions.')
+      return
+    }
+
+    const isSteamGame = steamInstalledAppIds.includes(mapping[selectedGame.id])
+    if (isSteamGame && !selectedInstalled) {
+      const proceed = window.confirm(t.library.steamDuplicateWarning)
+      if (!proceed) return
+    }
+
+    const preferredVersion = selectedInstalled
+      ? updateReady && latestCatalogVersion !== 'unknown'
+        ? latestCatalogVersion
+        : availableVersions.includes(selectedCurrentVersion)
+          ? selectedCurrentVersion
+          : targetVersion
+      : targetVersion
+
+    const usesBackupContent = selectedInstallState?.installSource !== 'depot'
+    // Open the dialog synchronously. A network/Tauri preflight must never make
+    // the Install button appear dead; its result is shown inside the dialog.
+    const openRequest = ++installOptionsOpenRequestRef.current
+    setFileFilter(null)
+    setShowInstallOptions(true)
+    if (usesBackupContent && isTauriRuntime()) {
+      setScanStatus('Checking Backup Game content...')
+      try {
+        const preflight = await invoke<{ targetVersion: string }>('preflight_backup_content', {
+          gameId: selectedGame.id,
+          targetVersion: preferredVersion && preferredVersion !== 'unknown' && preferredVersion !== 'select game'
+            ? preferredVersion
+            : null,
+        })
+        if (preflight.targetVersion) setSelectedVersion(preflight.targetVersion)
+        setScanStatus('Backup Game content is ready.')
+      } catch (error) {
+        const mapped = backupContentErrorMessage(error)
+        setScanStatus(mapped || `Backup Game check failed: ${String(error)}`)
+        // Keep the dialog open so the user can see the actual failure and close
+        // it normally; do not turn a preflight error into a dead button.
+        installOptionsOpenRequestRef.current = 0
+        return
+      }
+    }
+
+    if (preferredVersion && preferredVersion !== 'unknown' && preferredVersion !== 'select game') {
+      await changeTargetVersion(preferredVersion)
+    }
+    // Release the guard only if no newer open request superseded this one.
+    if (installOptionsOpenRequestRef.current === openRequest) {
+      installOptionsOpenRequestRef.current = 0
+    }
+  }
+
+  async function startUpdate(fileFilterOverride?: string[] | null) {
+    if (!selectedGame || !activeDetail) {
+      setScanStatus('Select a game first')
+      return
+    }
+    if (selectedInstallBlocked) {
+      setScanStatus(selectedInstallState?.unavailableReason || 'Resolve the existing install location before starting this job.')
+      return
+    }
+    if (!installMode && targetVersion === selectedCurrentVersion) {
+      setScanStatus(`${targetVersion} is already installed. Choose another version to upgrade or downgrade.`)
+      return
+    }
+    if (installMode) {
+      primeInstallCompleteSound()
+    }
+
+    // Show loading state immediately to prevent spam clicks
+    setIsStartingDownload(true)
+    setScanStatus('')
+
+    // Browser traffic is handled by the authenticated WebApp/Render remote-job API.
+    // Keeping this boundary explicit prevents legacy direct Firestore commands from
+    // bypassing device ownership, legal acceptance, online checks and job ACKs.
+    if (!isTauriRuntime()) {
+      setScanStatus('Remote installs must be sent from the signed-in Remote Dashboard.')
+      setIsStartingDownload(false)
+      return
+    }
+
+    try {
+      // Disk space check
+      try {
+        const targetPath = installMode ? installRoot : selectedInstallPath
+        const freeSpace = await invoke<number>('get_disk_free_space', { path: targetPath })
+        const requiredSpace = snapshotBelongsToSelectedGame
+          ? snapshot.requiredFreeSpace || snapshot.updateSize || effectiveDownloadSize
+          : effectiveDownloadSize
+        if (freeSpace < requiredSpace) {
+          const freeGB = (freeSpace / 1024 / 1024 / 1024).toFixed(2)
+          const reqGB = (requiredSpace / 1024 / 1024 / 1024).toFixed(2)
+          setScanStatus(`Not enough disk space! Need ${reqGB} GB, but only ${freeGB} GB available.`)
+          return
+        }
+      } catch (e) {
+        console.warn('Disk space check failed:', e)
+        // Continue anyway if the check fails (e.g. path doesn't exist yet)
+      }
+
+      // Cancel any pending version planning timer to prevent it from
+      // overwriting the active job with a stale null value (race condition).
+      if (versionPlanTimerRef.current !== null) {
+        window.clearTimeout(versionPlanTimerRef.current)
+        versionPlanTimerRef.current = null
+      }
+      versionPlanSequenceRef.current += 1
+
+      const versionToApply = targetVersion
+      setSelectedVersion(versionToApply)
+
+      let next: JobJournal
+      if (installMode) {
+        next = await invoke<JobJournal>('start_install_job', {
+          gameId: selectedGame.id,
+          targetVersion: versionToApply,
+          installPath: installRoot,
+          fileFilter: fileFilterOverride !== undefined ? fileFilterOverride : (fileFilter ?? null),
+        })
+      } else {
+        const state = installStates[selectedGame.id]
+        const remotePatchId = pendingPatches[selectedGame.id]
+        const localPatchId = state?.appliedPatchId
+        const hasPendingPatch = Boolean(remotePatchId && remotePatchId !== localPatchId)
+
+        // If versions match but there's a pending patch, run patch job instead of full update
+        if (state && versionToApply === state.currentVersion && hasPendingPatch) {
+          next = await invoke<JobJournal>('start_patch_job', {
+            gameId: selectedGame.id,
+            installPath: selectedInstallPath,
+            targetVersion: versionToApply,
+          })
+        } else {
+          next = await invoke<JobJournal>('start_update_job', {
+            gameId: selectedGame.id,
+            installPath: selectedInstallPath,
+            targetVersion: versionToApply,
+          })
+        }
+      }
+      setJob(next)
+      setFileFilter(null)
+      addLauncherLibraryGameIds([selectedGame.id])
+      if (installMode) {
+        audibleInstallJobIdsRef.current.add(next.id)
+      }
+      if (preferences.openDownloadsOnJobStart) {
+        setActiveTab('Downloads')
+      }
+      setShowInstallOptions(false)
+      if (installMode) {
+        setInstallPath(installRoot)
+        setScanStatus(`Installing ${versionToApply}`)
+
+        // Increment download count in Firebase
+        setDoc(doc(db, 'config', 'gameStats'), {
+          downloads: { [selectedGame.id]: increment(1) }
+        }, { merge: true }).catch((e: unknown) => console.warn('Failed to increment download count:', e))
+      }
+    } catch (error) {
+      setScanStatus(backupContentErrorMessage(error) || String(error))
+    } finally {
+      setIsStartingDownload(false)
+    }
+  }
+
+  async function playSelectedGame() {
+    if (!selectedGame || !activeDetail) {
+      setScanStatus('Select a game first')
+      return
+    }
+    if (!selectedInstalled && !isDepotInstalled) {
+      setShowInstallOptions(true)
+      return
+    }
+    if (selectedInstallBlocked) {
+      setScanStatus(selectedInstallState?.unavailableReason || 'The installed library is currently unavailable.')
+      return
+    }
+    if (!isTauriRuntime()) {
+      setScanStatus('Desktop launcher required to start the game')
+      return
+    }
+
+    if (gameHasTag(selectedGame.id, 'online')) {
+      try {
+        const spacewarOk = await invoke<boolean>('check_spacewar_installed')
+        if (!spacewarOk) {
+          setShowSpacewarPrompt(true)
+          return
+        }
+      } catch {
+        // If the Steam library probe itself fails, do not block the game.
+      }
+
+      try {
+        const steamRunning = await invoke<boolean>('is_steam_running')
+        if (!steamRunning) {
+          setShowSteamRecommendation(true)
+          return
+        }
+      } catch {
+        // If process detection is unavailable, continue with normal launch.
+      }
+    }
+
+    await continuePlaySelectedGame()
+  }
+
+  async function continuePlaySelectedGame() {
+    if (!selectedGame || !activeDetail) return
+
+    try {
+      const targetInstallPath = (selectedInstallState?.installed && selectedInstallState.installPath)
+        ? selectedInstallState.installPath
+        : selectedInstallPath
+      const config = await invoke<ResolvedGameLaunchConfig>('get_game_launch_config', {
+        gameId: selectedGame.id,
+        installPath: targetInstallPath,
+        launchExecutable: selectedInstallState?.launchExecutable || gameInstall.launchExecutable,
+      })
+      const availableOptions = config.options.filter((option) => option.available)
+      if (availableOptions.length === 0) {
+        const reason = config.options
+          .map((option) => option.unavailableReason)
+          .filter(Boolean)
+          .join('; ')
+        setScanStatus(reason || 'No launch option is available for this game')
+        return
+      }
+
+      const shouldShowPicker =
+        config.pickerMode === 'always' ||
+        (config.pickerMode !== 'never' && config.options.length > 1)
+
+      if (shouldShowPicker) {
+        setLaunchOptions(config)
+        return
+      }
+
+      const selectedOption =
+        availableOptions.find((option) => option.id === config.defaultOptionId) ??
+        availableOptions.find((option) => option.recommended) ??
+        availableOptions[0]
+      await doLaunchGame(selectedOption.id, selectedOption.title)
+    } catch (error) {
+      setScanStatus(String(error))
+    }
+  }
+
+  function openHomeGame(gameId: string) {
+    setSelectedGameId(gameId)
+    const isInstalled = installStates[gameId] && installStates[gameId].currentVersion !== 'not installed' && installStates[gameId].currentVersion !== 'unknown'
+    setActiveTab(isInstalled ? 'Library' : 'Store')
+  }
+
+  function playHomeGame(gameId: string) {
+    pendingHomeLaunchRef.current = gameId
+    setSelectedGameId(gameId)
+    setActiveTab('Library')
+  }
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    let unlistenNavigate: (() => void) | undefined
+    listen<string>('navigate', (event) => {
+      if (isTabId(event.payload)) setActiveTab(event.payload)
+      // We don't need to manually show() the window because the Rust side already calls window.show()
+    }).then((dispose) => {
+      unlistenNavigate = dispose
+    })
+    return () => {
+      unlistenNavigate?.()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (
+      pendingHomeLaunchRef.current &&
+      pendingHomeLaunchRef.current === selectedGame?.id &&
+      activeDetail?.gameId === selectedGame.id &&
+      selectedInstalled
+    ) {
+      pendingHomeLaunchRef.current = null
+      void playSelectedGame()
+    }
+    // The launch is deliberately keyed to the selected game/detail transition.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDetail?.gameId, selectedGame?.id, selectedInstalled])
+
+  async function openSteamAndContinue() {
+    setSteamOpening(true)
+    try {
+      await invoke('open_steam')
+      const deadline = Date.now() + 20_000
+      while (Date.now() < deadline) {
+        const running = await invoke<boolean>('is_steam_running').catch(() => false)
+        if (running) {
+          setShowSteamRecommendation(false)
+          await continuePlaySelectedGame()
+          return
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 700))
+      }
+      setScanStatus("We're recommended you to open Steam to play online")
+    } catch (error) {
+      setScanStatus(`Could not open Steam: ${String(error)}`)
+    } finally {
+      setSteamOpening(false)
+    }
+  }
+
+  async function doLaunchGame(launchOptionId?: string, launchOptionTitle?: string, skipCloudSync = false) {
+    if (!selectedGame || !activeDetail) return
+
+    if (!isTauriRuntime()) {
+      setScanStatus('Remote launch must be sent from the signed-in Remote Dashboard.')
+      return
+    }
+
+    if (preferences.pauseDownloadsBeforeLaunch && isRunning && !isPaused) {
+      try {
+        await invoke('pause_job')
+        setJob((current) => (current ? { ...current, status: 'paused' } : current))
+        setScanStatus('Active download paused before launching the game.')
+      } catch (error) {
+        setScanStatus(`Could not pause the active download: ${String(error)}`)
+        return
+      }
+    }
+
+    const splashStartedAt = performance.now()
+    setLaunchSplash({
+      title: launchOptionTitle ? `${selectedGame.title} â€” ${launchOptionTitle}` : selectedGame.title,
+      heroUrl: assetUrls[selectedGame.heroAssetId] || firstMediaUrl(activeDetail, assetUrls),
+      iconUrl: assetUrls[selectedGame.iconAssetId] || assetUrls[selectedGame.gridAssetId],
+    })
+
+    try {
+      pendingCloudLaunchRef.current = { optionId: launchOptionId, optionTitle: launchOptionTitle }
+      const targetInstallPath = (selectedInstallState?.installed && selectedInstallState.installPath)
+        ? selectedInstallState.installPath
+        : selectedInstallPath
+      const report = await invoke<LaunchReport>('launch_game', {
+        gameId: selectedGame.id,
+        installPath: targetInstallPath,
+        launchExecutable: selectedInstallState?.launchExecutable || gameInstall.launchExecutable,
+        launchOptionId: launchOptionId || null,
+        skipCloudSync,
+      })
+      pendingCloudLaunchRef.current = null
+      setCloudLaunchBlocked(false)
+      const dependencyText =
+        report.dependenciesInstalled.length > 0
+          ? `Installed ${report.dependenciesInstalled.length} dependency package(s), then started`
+          : 'Started'
+      const optionText = report.launchOptionTitle ? ` (${report.launchOptionTitle})` : ''
+      setScanStatus(`${dependencyText} ${selectedGame.title}${optionText}`)
+
+      // Running state is authoritative only after the backend has a tracked PID
+      // and emits launcher://game-started. This prevents a failed/elevated launch
+      // from leaving the Play button stuck on Running.
+
+      // Game Turbo Logic
+      if (launcherSettings.gameTurbo === 'always') {
+        window.setTimeout(() => {
+          void invoke('set_process_priority', { gameId: selectedGame.id, high: true }).catch(console.error)
+        }, 5000)
+      } else if (launcherSettings.gameTurbo === 'ask') {
+        setTurboGameToAsk(selectedGame)
+      }
+
+      const remainingMs = Math.max(0, 4200 - (performance.now() - splashStartedAt))
+      window.setTimeout(() => setLaunchSplash(null), remainingMs)
+    } catch (error) {
+      setLaunchSplash(null)
+      const message = String(error)
+      if (message.includes('CLOUD_SAVE_CONFLICT:')) {
+        setCloudLaunchBlocked(true)
+        setScanStatus(t.cloudSave.conflictDetectedStatus)
+        void refreshCloudSaveStatus(selectedGame.id)
+      } else {
+        pendingCloudLaunchRef.current = null
+        setScanStatus(message)
+      }
+    }
+  }
+
+  function launchWithoutCloudSync() {
+    const pending = pendingCloudLaunchRef.current
+    if (!pending) {
+      setScanStatus(t.cloudSave.launchAgainStatus)
+      return
+    }
+    setCloudLaunchBlocked(false)
+    void doLaunchGame(pending.optionId, pending.optionTitle, true)
+  }
+
+  async function stopSelectedGame() {
+    if (!selectedGame) return
+    try {
+      await invoke('kill_game', { gameId: selectedGame.id })
+      setPlayingGames((prev) => ({ ...prev, [selectedGame.id]: false }))
+    } catch (error) {
+      setScanStatus(String(error))
+    }
+  }
+
+  async function verifySelectedGame() {
+    if (!selectedGame) {
+      setScanStatus('Select a game first')
+      return
+    }
+    if (!selectedInstalled) {
+      setScanStatus('Install the game before verify')
+      return
+    }
+    if (selectedInstallBlocked) {
+      setScanStatus(selectedInstallState?.unavailableReason || 'The installed library is currently unavailable.')
+      return
+    }
+    if (!isTauriRuntime()) {
+      setScanStatus('Browser preview cannot verify local game files')
+      return
+    }
+
+    const gameId = selectedGame.id
+    const verifyInstallPath = selectedInstallPath
+    const verifyTargetVersion = selectedCurrentVersion
+    setVerifyStatus({
+      gameId,
+      state: 'running',
+      message: 'Verifying local files...',
+      percent: 0,
+      currentFile: null,
+      checkedFiles: 0,
+      totalFiles: 0,
+      checkedBytes: 0,
+      totalBytes: 0,
+    })
+    setScanStatus('Verifying local files...')
+
+    try {
+      const report = await invoke<VerifyInstallReport>('verify_install_integrity', {
+        gameId,
+        installPath: verifyInstallPath,
+        targetVersion: verifyTargetVersion,
+      })
+      const filePaths = [...report.missingFiles, ...report.mismatchedFiles]
+      const message = report.ok
+        ? `Verified ${report.checkedFiles} files`
+        : `Verify found ${report.missingFiles.length} missing and ${report.mismatchedFiles.length} changed files. Repair starts automatically.`
+      setVerifyStatus({
+        gameId,
+        state: report.ok ? 'ok' : 'running',
+        message,
+        percent: 1,
+        checkedFiles: report.checkedFiles,
+        missingFiles: report.missingFiles,
+        mismatchedFiles: report.mismatchedFiles,
+      })
+      setScanStatus(message)
+
+      if (filePaths.length > 0) {
+        try {
+          const planned = await invoke<JobJournal>('start_repair_job', {
+            gameId,
+            installPath: verifyInstallPath,
+            targetVersion: verifyTargetVersion,
+            filePaths,
+          })
+          setJob(planned)
+          setActiveTab('Downloads')
+          setScanStatus(`Repairing ${filePaths.length} file${filePaths.length === 1 ? '' : 's'} after verify`)
+        } catch (repairError) {
+          const repairMessage = `Verify found ${filePaths.length} file${filePaths.length === 1 ? '' : 's'} to repair, but repair could not start: ${String(repairError)}`
+          setVerifyStatus({
+            gameId,
+            state: 'failed',
+            message: repairMessage,
+            percent: 1,
+            checkedFiles: report.checkedFiles,
+            missingFiles: report.missingFiles,
+            mismatchedFiles: report.mismatchedFiles,
+          })
+          setScanStatus(repairMessage)
+        }
+      }
+    } catch (error) {
+      const message = String(error)
+      setVerifyStatus({
+        gameId,
+        state: 'failed',
+        message,
+        percent: 1,
+      })
+      setScanStatus(message)
+    }
+  }
+
+  function uninstallSelectedGame() {
+    if (!selectedGame || !selectedInstalled) {
+      return
+    }
+    if (selectedInstallBlocked) {
+      setScanStatus(selectedInstallState?.unavailableReason || 'Reconnect the installed library before uninstalling this game.')
+      return
+    }
+    if (preferences.confirmBeforeUninstall) {
+      setShowUninstallConfirm(true)
+      return
+    }
+    void executeUninstall()
+  }
+
+  async function executeUninstall() {
+    setShowUninstallConfirm(false)
+    if (!selectedGame || !selectedInstalled) {
+      return
+    }
+    if (!isTauriRuntime()) {
+      setScanStatus('Browser preview cannot uninstall local game files')
+      return
+    }
+    try {
+      await invoke('abort_and_clean_job', { gameId: selectedGame.id }).catch(() => undefined)
+      const report = await invoke<UninstallReport>('uninstall_game', {
+        gameId: selectedGame.id,
+        installPath: selectedInstallPath,
+      })
+      setInstallStates((current) => ({
+        ...current,
+        [selectedGame.id]: {
+          gameId: selectedGame.id,
+          installed: false,
+          currentVersion: 'not installed',
+          installPath: gameInstall.defaultInstallFolder,
+          launchExecutable: gameInstall.launchExecutable,
+        },
+      }))
+      setInstallPath('')
+      setInstallRoot(gameInstall.defaultInstallFolder)
+      setHasScanned(false)
+      const desktopShortcutText = report.removedShortcuts > 0 ? `, removed ${report.removedShortcuts} shortcut${report.removedShortcuts === 1 ? '' : 's'}` : ''
+      const steamShortcutText = report.steamShortcutRemoved ? ', removed/queued Steam shortcut cleanup' : ''
+      setScanStatus(`Uninstalled ${selectedGame.title}: removed ${report.removedFiles} files${desktopShortcutText}${steamShortcutText}`)
+      void publishNotification({
+        category: 'storage',
+        severity: 'success',
+        title: `${selectedGame.title} uninstalled`,
+        message: `Removed ${report.removedFiles} files${desktopShortcutText}${steamShortcutText}.`,
+        dedupeKey: `uninstall:${selectedGame.id}:${Date.now()}`,
+        entity: { kind: 'game', id: selectedGame.id },
+        action: { kind: 'open-store', tab: 'Store', gameId: selectedGame.id },
+      })
+    } catch (error) {
+      setScanStatus(String(error))
+      void publishNotification({
+        category: 'errors',
+        severity: 'error',
+        title: 'Uninstall failed',
+        message: String(error),
+        dedupeKey: `uninstall:${selectedGame.id}:failed:${String(error)}`,
+        entity: { kind: 'game', id: selectedGame.id },
+        action: { kind: 'open-game', tab: 'Library', gameId: selectedGame.id },
+      })
+    }
+  }
+
+  async function pauseOrResume() {
+    if (!isTauriRuntime()) {
+      setJob((current) => (current ? { ...current, status: isPaused ? 'running' : 'paused' } : current))
+      return
+    }
+
+    if (isPaused) {
+      await invoke('resume_job').catch(() => undefined)
+      setJob((current) => (current ? { ...current, status: 'running' } : current))
+    } else {
+      await invoke('pause_job').catch(() => undefined)
+      setJob((current) => (current ? { ...current, status: 'paused' } : current))
+    }
+  }
+
+  async function resumeFailedJob() {
+    if (!isTauriRuntime()) {
+      setJob((current) => (current ? { ...current, status: 'downloading', phase: 'Download packs' } : current))
+      return
+    }
+
+    setIsResuming(true)
+    try {
+      await invoke('resume_job')
+      setJob((current) => (current ? { ...current, status: 'downloading', phase: current.phase || 'Download packs' } : current))
+      setScanStatus('Resuming download...')
+    } catch (error) {
+      setScanStatus(String(error))
+      setIsResuming(false)
+    }
+    // isResuming will be cleared when the first job event arrives from backend
+  }
+
+  async function cancelJob() {
+    if (!isTauriRuntime()) {
+      setJob((current) => (current ? { ...current, status: 'canceled', phase: 'Canceled' } : current))
+      return
+    }
+
+    if (
+      preferences.confirmBeforeCancelCleanup &&
+      !window.confirm('Are you sure you want to cancel the download? This will delete temporary downloaded data for this job.')
+    ) {
+      return
+    }
+
+    canceledJobIdRef.current = job?.id ?? null
+
+    try {
+      if (selectedGameId) {
+        await invoke('abort_and_clean_job', { gameId: selectedGameId })
+      } else {
+        await invoke('cancel_job')
+      }
+      setScanStatus('Download canceled and temporary data cleanup started.')
+      void publishNotification({
+        category: 'downloads',
+        severity: 'success',
+        title: 'Download canceled',
+        message: 'Temporary data cleanup completed for the canceled job.',
+        dedupeKey: `job:${job?.id ?? selectedGameId ?? 'active'}:cleanup-complete`,
+        entity: job ? { kind: 'job', id: job.id } : null,
+        action: { kind: 'open-downloads', tab: 'Downloads', gameId: selectedGameId },
+      })
+    } catch (error) {
+      setScanStatus(`Download canceled, but cleanup reported: ${String(error)}`)
+      void publishNotification({
+        category: 'errors',
+        severity: 'error',
+        title: 'Temporary cleanup failed',
+        message: String(error),
+        dedupeKey: `job:${job?.id ?? selectedGameId ?? 'active'}:cleanup-failed:${String(error)}`,
+        entity: job ? { kind: 'job', id: job.id } : null,
+        action: { kind: 'open-downloads', tab: 'Downloads', gameId: selectedGameId },
+      })
+    } finally {
+      // Clear immediately; the backend job-cleared event repeats this after the
+      // journal is removed and again when the worker has fully exited.
+      setJob(null)
+      setFileFilter(null)
+      setDownloadRate(0)
+      downloadRateWindowRef.current = null
+      setVerifyStatus(null)
+    }
+  }
+
+  async function clearLauncherCache() {
+    if (!isTauriRuntime()) {
+      setScanStatus('Cache cleanup requires the desktop launcher.')
+      return
+    }
+    if (isRunning) {
+      setScanStatus('Pause or finish the active download before clearing cache.')
+      return
+    }
+    if (
+      preferences.confirmBeforeClearCache &&
+      !window.confirm(`Clear ${snapshot.cache.cacheSize > 0 ? 'the reusable chunk cache' : 'this cache'}? Installed game files are not affected.`)
+    ) {
+      return
+    }
+    setCacheBusy(true)
+    try {
+      const report = await invoke<ClearCacheReport>('clear_chunk_cache', {
+        cachePath: snapshot.cache.cachePath,
+      })
+      const nextSnapshot = await invoke<Snapshot>('get_launcher_snapshot')
+      setSnapshot(nextSnapshot)
+      setScanStatus(`Cleared ${report.removedFiles} cached files (${formatBytes(report.removedBytes)}).`)
+      void publishNotification({
+        category: 'storage',
+        severity: 'success',
+        title: 'Chunk cache cleared',
+        message: `Removed ${report.removedFiles} files and freed ${formatBytes(report.removedBytes)}.`,
+        dedupeKey: `cache-clear:${report.cachePath}:${Date.now()}`,
+        entity: { kind: 'cache', id: report.cachePath },
+        action: { kind: 'open-cache', tab: 'Cache', gameId: selectedGameId },
+      })
+    } catch (error) {
+      setScanStatus(`Cache cleanup failed: ${String(error)}`)
+      void publishNotification({
+        category: 'errors',
+        severity: 'error',
+        title: 'Cache cleanup failed',
+        message: String(error),
+        dedupeKey: `cache-clear:failed:${snapshot.cache.cachePath}:${String(error)}`,
+        entity: { kind: 'cache', id: snapshot.cache.cachePath },
+        action: { kind: 'open-cache', tab: 'Cache', gameId: selectedGameId },
+      })
+    } finally {
+      setCacheBusy(false)
+    }
+  }
+
+  const enterBigPicture = () => {
+    // Block Big Picture during intro or Discord verification.
+    if (isBlockedState) {
+      if (import.meta.env.DEV) console.debug('[BigPicture] Blocked during startup access checks')
+      return
+    }
+    if (bigPicturePhaseRef.current !== 'closed') return
+
+    const transitionId = ++bigPictureTransitionRef.current
+    bigPicturePhaseRef.current = 'entering'
+    setNotificationOpen(false)
+    setBigPicturePhase('entering')
+
+    void enterNativeBigPictureFullscreen().then((session) => {
+      if (transitionId !== bigPictureTransitionRef.current) {
+        void restoreNativeBigPictureFullscreen(session)
+        return
+      }
+      bigPictureFullscreenSessionRef.current = session
+      window.setTimeout(() => {
+        if (transitionId === bigPictureTransitionRef.current) {
+          bigPicturePhaseRef.current = 'active'
+          setBigPicturePhase('active')
+        }
+      }, reducedMotion ? 0 : 180)
+    })
+  }
+
+  const exitBigPicture = async () => {
+    if (bigPicturePhaseRef.current === 'closed' || bigPicturePhaseRef.current === 'exiting') return
+
+    const transitionId = ++bigPictureTransitionRef.current
+    bigPicturePhaseRef.current = 'exiting'
+    setNotificationOpen(false)
+    setBigPicturePhase('exiting')
+
+    await new Promise<void>((resolve) => window.setTimeout(resolve, reducedMotion ? 40 : 420))
+    const session = bigPictureFullscreenSessionRef.current
+    bigPictureFullscreenSessionRef.current = null
+    await restoreNativeBigPictureFullscreen(session)
+
+    if (transitionId === bigPictureTransitionRef.current) {
+      bigPicturePhaseRef.current = 'closed'
+      setBigPicturePhase('closed')
+      // The normal launcher subtree remounts only after Big Picture closes. Give
+      // WebView2 two frames to settle the restored window geometry, then notify
+      // responsive/reveal systems that the final viewport is ready.
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
+      })
+    }
+  }
+
+  useEffect(() => () => {
+    bigPictureTransitionRef.current += 1
+    bigPicturePhaseRef.current = 'closed'
+    const session = bigPictureFullscreenSessionRef.current
+    bigPictureFullscreenSessionRef.current = null
+    void restoreNativeBigPictureFullscreen(session)
+  }, [])
+
+  const HomeRenderer = renderedShellTheme === 'default' ? DefaultHomeView : HomeView
+
+  const handleJumpToGame = useCallback((gameId: string) => {
+    setSelectedGameId(gameId)
+    if (activeTab !== 'Store' && activeTab !== 'Library') {
+      setActiveTab('Store')
+    }
+  }, [activeTab, setActiveTab, setSelectedGameId])
+
+  return (
+    <GlobalAudioProvider>
+      <AppAudioConnector onSelectGame={handleJumpToGame} />
+      <MotionConfig reducedMotion={reducedMotion ? 'always' : 'never'}>
+      {isBigPictureMode ? (
+        <AnimatePresence>
+          <Suspense fallback={<ViewChunkFallback />}>
+            <BigPictureView
+              games={catalog.games}
+              assetUrls={assetUrls}
+              phase={bigPicturePhase}
+              reducedMotion={reducedMotion}
+              onExit={() => void exitBigPicture()}
+              onPlayGame={(gameId) => {
+                playHomeGame(gameId)
+                void exitBigPicture()
+              }}
+              notifications={notifications}
+              notificationOpen={notificationOpen}
+              onToggleNotifications={() => setNotificationOpen((current) => !current)}
+              onCloseNotifications={() => setNotificationOpen(false)}
+              onOpenNotification={openNotificationRecord}
+              onMarkAllNotificationsRead={() => {
+                setNotifications((current) => current.map((item) => ({ ...item, read: true })))
+                if (isTauriRuntime()) {
+                  void invoke<NotificationRecord[]>('mark_all_notifications_read').then(setNotifications).catch(() => undefined)
+                }
+              }}
+              onClearNotifications={() => {
+                setNotifications([])
+                if (isTauriRuntime()) {
+                  void invoke<NotificationRecord[]>('clear_notifications').then(setNotifications).catch(() => undefined)
+                }
+              }}
+              onOpenNotificationSettings={() => {
+                setNotificationOpen(false)
+                void exitBigPicture().then(() => {
+                  window.localStorage.setItem('0xolemon.settings.activePane', 'notifications')
+                  window.dispatchEvent(new CustomEvent('0xo-settings-pane', { detail: { pane: 'notifications' } }))
+                  setActiveTab('Settings')
+                  window.setTimeout(() => {
+                    document.getElementById('notification-settings')?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth' })
+                  }, 100)
+                })
+              }}
+            />
+          </Suspense>
+        </AnimatePresence>
+      ) : (
+        <SocialPrototypeProvider
+          user={discordAuth.state === 'authorized' ? discordAuth.user : null}
+          activeGame={socialActiveGame}
+        >
+        <div
+          className={[
+            'app-root',
+            reducedMotion ? 'reduce-motion' : '',
+            disableAllEffects ? 'disable-all-effects' : '',
+            preferences.glassEffects ? 'glass-effects' : 'no-glass-effects',
+            preferences.scrollEffects ? '' : 'no-scroll-effects',
+          ].filter(Boolean).join(' ')}
+        >
+          {showIntro && (
+            <IntroScreen
+              onExiting={() => setIntroExiting(true)}
+              onDone={() => setShowIntro(false)}
+            />
+          )}
+
+          {turboGameToAsk && (
+            <GameTurboModal
+              gameName={turboGameToAsk.title}
+              turboEnabled={false}
+              onEnable={() => {
+                void invoke('set_process_priority', { gameId: turboGameToAsk.id, high: true }).catch(console.error)
+              }}
+              onDisable={() => { }}
+              onClose={() => setTurboGameToAsk(null)}
+              onDontAskAgain={(enabled) => {
+                void updateLauncherSetting('gameTurbo', enabled ? 'always' : 'never')
+              }}
+            />
+          )}
+
+          <CustomTitleBar
+            closeBehavior={preferences.closeBehavior}
+            job={job}
+            updateProgress={launcherUpdateProgress}
+            notifications={notifications}
+            notificationOpen={notificationOpen}
+            discordUser={discordAuth.state === 'authorized' ? discordAuth.user : null}
+            statusPreferences={preferences}
+            isBlockedState={isBlockedState}
+            onToggleNotifications={() => setNotificationOpen((current) => !current)}
+            onCloseNotifications={() => setNotificationOpen(false)}
+            onOpenNotification={openNotificationRecord}
+            onMarkAllNotificationsRead={() => {
+              setNotifications((current) => current.map((item) => ({ ...item, read: true })))
+              if (isTauriRuntime()) {
+                void invoke<NotificationRecord[]>('mark_all_notifications_read').then(setNotifications).catch(() => undefined)
+              }
+            }}
+            onClearNotifications={() => {
+              setNotifications([])
+              if (isTauriRuntime()) {
+                void invoke<NotificationRecord[]>('clear_notifications').then(setNotifications).catch(() => undefined)
+              }
+            }}
+            onOpenNotificationSettings={() => {
+              setNotificationOpen(false)
+              window.localStorage.setItem('0xolemon.settings.activePane', 'notifications')
+              window.dispatchEvent(new CustomEvent('0xo-settings-pane', { detail: { pane: 'notifications' } }))
+              setActiveTab('Settings')
+              window.setTimeout(() => {
+                setNotificationOpen(false)
+                document.getElementById('notification-settings')?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth' })
+              }, 100)
+            }}
+            onDiscordLogout={() => void logoutDiscord()}
+            onToggleBigPicture={enterBigPicture}
+            onToggleSocial={() => window.dispatchEvent(new CustomEvent('0xo-social-toggle'))}
+            onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
+            isSidebarCollapsed={isSidebarCollapsed}
+            onlineCount={onlineCount}
+            activeTab={activeTab}
+            uiTheme={renderedShellTheme}
+            onNavigate={setActiveTab}
+            onOpenHelpCenter={() => setHelpCenterOpen(true)}
+            onRandomGame={(appid) => {
+              setSelectedDepotAppId(Number(appid))
+              setActiveTab('Store')
+            }}
+            randomGameIds={depotRandomGames.map((game) => game.id)}
+            randomGameGames={depotRandomGames}
+            randomGameCoverUrl={null}
+          />
+          {/* Pull-to-refresh indicator */}
+          {ptrProgress > 0 && (
+            <div className={`pull-to-refresh-indicator${ptrProgress > 0.3 ? ' is-visible' : ''}${ptrRefreshing ? ' is-refreshing' : ''}`}>
+              <div className="ptr-spinner" style={{
+                transform: ptrRefreshing ? undefined : `rotate(${ptrProgress * 360}deg)`,
+                borderTopColor: ptrProgress >= 1 ? '#4da4ff' : `rgba(77, 164, 255, ${0.3 + ptrProgress * 0.7})`
+              }} />
+              <span>
+                {ptrRefreshing
+                  ? 'Äang táº£i láº¡i...'
+                  : ptrProgress >= 1
+                    ? 'Tháº£ ra Ä‘á»ƒ táº£i láº¡i!'
+                    : 'KĂ©o xuá»‘ng Ä‘á»ƒ táº£i láº¡i'}
+              </span>
+            </div>
+          )}
+          {launcherUpdate && !updateSkipped ? (
+            <UpdateBanner
+              update={launcherUpdate}
+              progress={launcherUpdateProgress}
+              onOpen={() => setShowUpdateCenter(true)}
+              onStart={() => void applyLauncherUpdate()}
+              onSkip={() => { setUpdateSkipped(true); setShowUpdateCenter(false) }}
+            />
+          ) : null}
+          {themeRecovery ? (
+            <aside className="theme-package-recovery" role="status">
+              <div>
+                <strong>{themeRecovery.theme.toUpperCase()} theme was recovered</strong>
+                <span>{themeRecovery.message} Default is active for this session; your saved preference was not changed.</span>
+              </div>
+              <button type="button" onClick={() => setThemeRecovery(null)} aria-label="Dismiss theme recovery message">Ă—</button>
+            </aside>
+          ) : null}
+          <ConnectedThemeShellHost
+            theme={requestedShellTheme}
+            onThemeReady={(theme) => {
+              setRenderedShellTheme(theme)
+              if (theme === requestedShellTheme) setThemeRecovery(null)
+            }}
+            activeTab={activeTab}
+            onNavigate={setActiveTab}
+            onBack={goBack}
+            onForward={goForward}
+            canGoBack={canGoBack}
+            canGoForward={canGoForward}
+            serviceStatus={contentServiceLabel(snapshot.proxyStatus)}
+            updateCount={updateReadyGameIds.length}
+            downloadCount={hasVisibleJob ? 1 : 0}
+            luaModeEnabled={luaModeEnabled}
+            discordAuthorized={discordAuth.state === 'authorized'}
+            displayName={discordAuth.state === 'authorized' ? discordAuth.user?.displayName : null}
+            selectedGameTitle={selectedGame?.title ?? null}
+            selectedGameId={selectedGameId}
+            instances={themeInstances}
+            instanceGroups={themeInstanceGroups}
+            onSelectGame={(gameId) => {
+              setSelectedGameId(gameId)
+              setActiveTab('Library')
+            }}
+            isSidebarCollapsed={isSidebarCollapsed}
+            onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
+            hiddenNavTabs={preferences.hiddenNavTabs}
+          >
+            <div className="workspace-corner-clip">
+              <section
+                className={`workspace premium-workspace${ptrProgress > 0 ? ' ptr-pulling' : ''}${activeTab === 'Lua Shop' ? ' lua-shop-workspace' : ''}${activeTab === "What's New!" ? ' whats-new-workspace' : ''}${activeTab === 'Store' ? ' store-tab-workspace' : ''}`}
+                style={ptrProgress > 0 ? { transform: `translateY(${Math.min(ptrProgress * 60, 60)}px)` } : undefined}
+              >
+              {showLocateLibraryPrompt ? (
+                <aside className="install-recovery-prompt" aria-labelledby="install-recovery-prompt-title">
+                  <FolderSearch size={20} aria-hidden="true" />
+                  <div>
+                    <strong id="install-recovery-prompt-title">{t.installRecovery.locateTitle}</strong>
+                    <span>{t.installRecovery.locateDescription}</span>
+                  </div>
+                  <button type="button" className="secondary" onClick={() => void locateExistingLibrary()} disabled={installDiscoveryBusy}>
+                    <FolderSearch size={16} />
+                    {installDiscoveryBusy ? t.installRecovery.checking : t.installRecovery.chooseLibrary}
+                  </button>
+                  <button type="button" className="install-recovery-prompt-close" onClick={dismissLocateLibraryPrompt} aria-label={t.installRecovery.close}>
+                    <X size={16} />
+                  </button>
+                </aside>
+              ) : null}
+              {activeTab === 'Cache' && selectedGame && activeDetail ? (
+                <OperationHero
+                  game={selectedGame}
+                  detail={activeDetail}
+                  assets={assetUrls}
+                  currentVersion={selectedCurrentVersion}
+                  latestVersion={latestCatalogVersion}
+                  updateReady={updateReady}
+                  showVersionAction={showVersionAction}
+                  updateSize={effectiveDownloadSize}
+                  onUpdate={openVersionOptions}
+                  onPlay={playSelectedGame}
+                  onStop={stopSelectedGame}
+                  isJobRunning={isRunning && (!activeJob.gameId || activeJob.gameId === selectedGame.id)}
+                  isGameRunning={playingGames[selectedGame.id] || false}
+                  canUpdate={canUpdate}
+                  installMode={installMode}
+                  selectedVersion={targetVersion}
+                  isPaused={isPaused}
+                  onPause={pauseOrResume}
+                  onCancel={cancelJob}
+                />
+              ) : null}
+
+              <div
+                key={activeTab}
+                style={activeTab === 'GSE / UC Setup' ? { display: 'none' } : undefined}
+                className={[
+                  'tab-content',
+                  reducedMotion ? '' : 'tab-enter',
+                  activeTab === 'Lua Shop' ? 'lua-shop-tab-content' : '',
+                  activeTab === "What's New!" ? 'whats-new-tab-content' : '',
+                  activeTab === 'Settings' ? 'settings-tab-content' : '',
+                  activeTab === 'Store' ? 'store-tab-content' : '',
+                ].filter(Boolean).join(' ')}
+              >
+                <Suspense fallback={<ViewChunkFallback />}>
+                  {/* Offline gate: tabs requiring internet show NoInternetView when offline */}
+                  {!isOnline && !['Home', 'Library', 'Social', 'Settings', 'GSE / UC Setup'].includes(activeTab) ? (
+                  <NoInternetView tabName={activeTab === 'Home' ? 'Home' : activeTab === 'Store' ? 'Store' : activeTab === "What's New!" ? "What's New" : activeTab === 'Downloads' ? 'Downloads' : activeTab === 'CloudRedirect' ? 'CloudRedirect' : activeTab === 'Translations' ? 'Translations' : undefined} />
+                ) : activeTab === 'Home' ? (
+                  <HomeRenderer
+                    catalog={catalog}
+                    installStates={installStates}
+                    runtimeStates={runtimeStates}
+                    assets={assetUrls}
+                    job={job}
+                    launcherUpdate={launcherUpdate}
+                    launcherUpdateProgress={launcherUpdateProgress}
+                    preferences={preferences}
+                    reducedMotion={reducedMotion}
+                    onRequestAsset={requestHomeAsset}
+                    onOpenGame={openHomeGame}
+                    onPlayGame={playHomeGame}
+                    onOpenTab={setActiveTab}
+                    onOpenDiscord={() => void openUrl('https://discord.gg/7ZXdTUVsJE')}
+                    onOpenDonate={() => setShowDonate(true)}
+                    displayName={discordAuth.state === 'authorized' ? discordAuth.user?.displayName : null}
+                    online={isOnline}
+                  />
+                ) : activeTab === 'Store' ? (
+                  <DepotDownloaderView
+                    defaultLibraryRoot={preferences.defaultLibraryRoot}
+                    selectedAppId={selectedDepotAppId}
+                  />
+                ) : activeTab === 'CloudRedirect' ? (
+                  <CloudSavesOverview
+                    catalog={catalog}
+                    installStates={installStates}
+                    assets={assetUrls}
+                    onOpenGame={openHomeGame}
+                    onRequestAsset={requestHomeAsset}
+                  />
+                ) : activeTab === 'Social' ? (
+                  <SocialHubView />
+                ) : activeTab === 'Settings' ? (
+                  <ThemeSettingsHost
+                    theme={renderedShellTheme}
+                    preferences={preferences}
+                    launcherSettings={launcherSettings}
+                    onChange={updatePreference}
+                    onLauncherSettingChange={<K extends keyof LauncherSettings>(key: K, value: LauncherSettings[K]) => void updateLauncherSetting(key, value)}
+                    onChooseLibrary={() => void chooseDefaultLibraryRoot()}
+                    onOpenLibrary={() => void openDefaultLibraryRoot()}
+                    onOpenCache={() => setActiveTab('Cache')}
+                    onOpenCloudRedirect={() => setActiveTab('CloudRedirect')}
+                    onChooseCloudRoot={() => void chooseCloudSaveRoot()}
+                    onOpenCloudRoot={() => void openCloudSaveRoot()}
+                    onCheckForUpdates={() => void checkLauncherUpdateNow()}
+                    onLuaGameModeChange={setLuaModeEnabled}
+                    steamEnvironment={steamEnvironment}
+                    steamStatus={steamSettingsStatus}
+                    onRefreshSteam={() => void refreshSteamEnvironment(true)}
+                    onOpenSteam={() => void openSteamFromSettings('open_steam')}
+                    onRestartSteam={() => void openSteamFromSettings('restart_steam')}
+                    onOpenBigPicture={() => void openSteamFromSettings('open_steam_big_picture')}
+                    onReset={resetLauncherPreferences}
+                    onResetOnboarding={() => {
+                      updatePreference('onboardingCompleted', false)
+                      setActiveTab('Home')
+                    }}
+                    onOpenHelpCenter={() => setHelpCenterOpen(true)}
+                    onManageNotifications={() => setNotificationOpen(true)}
+                    sessionUiTheme={sessionUiTheme}
+                    onClose={() => setActiveTab('Home')}
+                    appVersion={appVersion}
+                    updateStatus={settingsUpdateStatus}
+                  />
+                ) : (
+                  <><CatalogStatusBanner active={activeTab === 'Backup Game'} resources={[backendResource, legacyResource]} onRetry={() => void loadCatalog()} />
+                  <ActiveView
+                    activeTab={activeTab}
+                    catalog={activeTab === 'Downloads' ? updatesCatalog : activeTab === 'Library' ? libraryCatalog : catalog}
+                    catalogLoadState={catalogLoadState}
+                    onRetryCatalog={() => void loadCatalog()}
+                    selectedGame={selectedGame}
+                    selectedGameId={selectedGameId}
+                    onSelectGame={(gameId) => {
+                      if (versionPlanTimerRef.current !== null) {
+                        window.clearTimeout(versionPlanTimerRef.current)
+                        versionPlanTimerRef.current = null
+                      }
+                      versionPlanSequenceRef.current += 1
+                      setSelectedGameId(gameId)
+                      setShowInstallOptions(false)
+                      setFileFilter(null)
+                      setLaunchOptions(null)
+                      const game = catalog.games.find((candidate) => candidate.id === gameId)
+                      if (game) {
+                        const latest = game.availableVersions.find((version) => version.latest)?.version ?? game.latestVersion
+                        setSelectedVersion(latest)
+                        setInstallRoot(installMetadataForStoreRoot(game, game.install, preferences.defaultLibraryRoot).defaultInstallFolder)
+                        if (game.id !== DEFAULT_GAME_ID) {
+                          setInstallPath('')
+                          setScanStatus('No install found')
+                        }
+                      }
+                    }}
+                    onRequestAsset={requestGameAsset}
+                    detail={activeDetail}
+                    assets={assetUrls}
+                    snapshot={snapshot}
+                    installPath={installPath}
+                    installTarget={displayedInstallTarget}
+                    scanStatus={scanStatus}
+                    selectedVersion={targetVersion}
+                    selectedCurrentVersion={selectedCurrentVersion}
+                    selectedVersionInfo={selectedVersionInfo}
+                    installStates={installStates}
+                    steamInstalledAppIds={steamInstalledAppIds}
+                    steamBuildIds={steamBuildIds}
+                    uiTheme={sessionUiTheme}
+                    onOpenLibrary={(gameId) => {
+                      setSelectedGameId(gameId)
+                      setActiveTab('Library')
+                    }}
+                    onNavigate={(tab) => setActiveTab(tab)}
+                    selectedInstallState={selectedInstallState}
+                    verifyStatus={selectedVerifyStatus}
+                    installMode={installMode}
+                    updateReady={updateReady}
+                    showVersionAction={showVersionAction}
+                    canUpdate={canUpdate}
+                    isJobRunning={isRunning}
+                    isGameRunning={selectedGame ? playingGames[selectedGame.id] || false : false}
+                    isStarting={isStartingDownload}
+                    onBrowse={chooseInstallFolder}
+                    onScan={() => scanFolder()}
+                    onPrimaryAction={openVersionOptions}
+                    onPlay={playSelectedGame}
+                    onStop={stopSelectedGame}
+                    onVerify={verifySelectedGame}
+                    onUninstall={uninstallSelectedGame}
+                    job={activeJob}
+                    hasJob={hasVisibleJob}
+                    progress={progress}
+                    phaseProgress={phaseProgress}
+                    updateSize={effectiveDownloadSize}
+                    isRunning={isRunning}
+                    onOpenInstallOptions={() => {
+                      void openVersionOptions()
+                    }}
+                    onPause={pauseOrResume}
+                    onCancel={cancelJob}
+                    onResume={resumeFailedJob}
+                    isResuming={isResuming}
+                    isPaused={isPaused}
+                    logs={activeJob.logs}
+                    onOpenStore={() => {
+                      setSelectedGameId(null)
+                      setActiveTab('Store')
+                    }}
+                    cloudSaveStatus={cloudSaveStatus}
+                    cloudSaveBusy={cloudSaveBusy}
+                    cloudLaunchBlocked={cloudLaunchBlocked}
+                    desktopDetail={activeTab === 'Backup Game' || (activeTab === 'Library' && Boolean(selectedGameId))}
+                    onToggleCloudSave={(enabled) => void toggleCloudSave(enabled)}
+                    onAddCloudSaveFolder={() => void addCloudSaveFolder()}
+                    onSyncCloudSave={() => void syncCloudSave()}
+                    onResolveCloudConflict={(conflictId, resolution) => void resolveCloudConflict(conflictId, resolution)}
+                    onRestoreCloudSnapshot={(snapshotId) => void restoreCloudSnapshot(snapshotId)}
+                    onLaunchWithoutCloudSync={launchWithoutCloudSync}
+                    onConnectGoogleDrive={() => void connectAndBackupGoogleDrive()}
+                    onDisconnectGoogleDrive={() =>
+                      void runGoogleDriveAction('disconnect_google_drive', t.cloudSave.disconnectingDrive)
+                    }
+                    onBackupGoogleDrive={() =>
+                      void runGoogleDriveAction('backup_save_game_to_google_drive', t.cloudSave.backingUpDrive)
+                    }
+                    onRestoreMissingSaveFiles={() =>
+                      void runGoogleDriveAction('restore_missing_save_files', t.cloudSave.checkingMissingDrive)
+                    }
+                    cacheBusy={cacheBusy}
+                    onClearCache={() => void clearLauncherCache()}
+                    discordUser={discordAuth.state === 'authorized' ? discordAuth.user : null}
+                  /></>
+                  )}
+                </Suspense>
+              </div>
+              {/* GSE / UC Setup â€” always mounted so setup progress survives tab switches */}
+              <Suspense fallback={null}>
+                <div
+                  className="gse-persistent-layer"
+                  style={{ display: activeTab === 'GSE / UC Setup' ? 'flex' : 'none' }}
+                >
+                  <GseUcStandaloneView />
+                </div>
+              </Suspense>
+              {showInstallOptions && selectedGame && activeDetail ? (
+                <InstallOptionsDialog
+                  detail={activeDetail}
+                  mode={installMode ? 'install' : 'version'}
+                  currentVersion={selectedCurrentVersion}
+                  selectedVersion={targetVersion}
+                  availableVersions={availableVersions}
+                  versionInfos={mergedVersionInfos}
+                  downloadSize={effectiveDownloadSize}
+                  installRoot={installMode ? installRoot : selectedInstallPath}
+                  downloadingRoot={downloadPathForInstallRoot(installMode ? installRoot : selectedInstallPath, gameInstall)}
+                  canStart={canApplySelectedVersion}
+                  isStarting={isStartingDownload}
+                  statusMessage={scanStatus}
+                  onVersionChange={changeTargetVersion}
+                  onChangeInstallRoot={chooseInstallTarget}
+                  onStart={startUpdate}
+                  onClose={() => {
+                    setShowInstallOptions(false)
+                    setFileFilter(null)
+                  }}
+                  onPickFiles={installMode ? () => setShowFilePicker(true) : undefined}
+                />
+              ) : null}
+              {showFilePicker && selectedGame ? (
+                <FilePickerModal
+                  gameId={selectedGame.id}
+                  targetVersion={targetVersion}
+                  onConfirm={(paths) => {
+                    setFileFilter(paths)
+                    setShowFilePicker(false)
+                    setShowInstallOptions(false)
+                    // Start download immediately with the selected paths (don't wait for state update)
+                    void startUpdate(paths)
+                  }}
+                  onClose={() => setShowFilePicker(false)}
+                />
+              ) : null}
+              {showDrivePicker ? (
+                <DriveLibraryPickerModal
+                  libraries={libraries}
+                  gameName={selectedGame ? gameFolderName(selectedGame) : '007 First Light'}
+                  currentRoot={installRoot}
+                  onSelect={applyLibraryDrive}
+                  onAddDrive={addLibraryDrive}
+                  onClose={() => setShowDrivePicker(false)}
+                />
+              ) : null}
+              <InstallRecoveryDialog
+                open={showInstallRecovery}
+                conflicts={installDiscoveryReport?.conflicts ?? []}
+                gameTitles={installRecoveryTitles}
+                busy={installDiscoveryBusy}
+                onResolve={(gameId, installPath) => void resolveInstallConflict(gameId, installPath)}
+                onLocate={() => void locateExistingLibrary()}
+                onClose={closeInstallRecovery}
+              />
+              {launchOptions && selectedGame ? (
+                <LaunchOptionsModal
+                  gameTitle={selectedGame.title}
+                  config={launchOptions}
+                  onClose={() => setLaunchOptions(null)}
+                  onLaunch={(optionId, optionTitle) => {
+                    setLaunchOptions(null)
+                    void doLaunchGame(optionId, optionTitle)
+                  }}
+                />
+              ) : null}
+              {launchSplash ? <LaunchSplash splash={launchSplash} /> : null}
+              {showNvidiaToast && <NvidiaToast onDismiss={() => setShowNvidiaToast(false)} />}
+
+              {showUninstallConfirm && selectedGame ? (
+                <div className="dialog-backdrop" role="presentation">
+                  <section className="install-modal" role="dialog" aria-modal="true" aria-labelledby="uninstall-title">
+                    <div className="modal-handle" />
+                    <header>
+                      <button type="button" onClick={() => setShowUninstallConfirm(false)} aria-label="Cancel">
+                        <X size={17} />
+                      </button>
+                      <h2 id="uninstall-title">Confirm Uninstall</h2>
+                      <p>Are you sure you want to uninstall {selectedGame.title}?</p>
+                    </header>
+                    <div className="install-modal-body">
+                      <div className="warning-box" style={{ background: 'rgba(255, 60, 60, 0.1)', border: '1px solid rgba(255, 60, 60, 0.3)', padding: '16px', borderRadius: '8px', color: '#ffb3b3' }}>
+                        <CircleAlert size={20} style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '10px' }} />
+                        <span style={{ verticalAlign: 'middle' }}>This will permanently delete all local files for this game from your hard drive.</span>
+                      </div>
+                    </div>
+                    <footer>
+                      <button type="button" className="secondary" onClick={() => setShowUninstallConfirm(false)}>
+                        Cancel
+                      </button>
+                      <button type="button" className="danger-control" onClick={executeUninstall} style={{ padding: '8px 24px', background: '#e53935', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>
+                        Uninstall
+                      </button>
+                    </footer>
+                  </section>
+                </div>
+              ) : null}
+
+              {showSteamRecommendation && (
+                <div className="dialog-backdrop" role="presentation">
+                  <section className="install-modal" role="dialog" aria-modal="true" aria-labelledby="steam-recommendation-title">
+                    <div className="modal-handle" />
+                    <header>
+                      <button type="button" onClick={() => setShowSteamRecommendation(false)} aria-label="Cancel">
+                        <X size={17} />
+                      </button>
+                      <h2 id="steam-recommendation-title">Steam recommended</h2>
+                      <p>We're recommended you to open Steam to play online</p>
+                    </header>
+                    <div className="install-modal-body">
+                      <div style={{ background: 'rgba(77, 164, 255, 0.1)', border: '1px solid rgba(77, 164, 255, 0.35)', padding: '16px', borderRadius: '8px', color: '#b3d8ff', lineHeight: 1.7 }}>
+                        Steam is not running. Opening it first improves compatibility for online play and Steam-based services.
+                      </div>
+                    </div>
+                    <footer>
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={steamOpening}
+                        onClick={() => {
+                          setShowSteamRecommendation(false)
+                          void continuePlaySelectedGame()
+                        }}
+                      >
+                        Continue anyway
+                      </button>
+                      <button
+                        type="button"
+                        className="primary-control downloading-btn"
+                        disabled={steamOpening}
+                        onClick={() => void openSteamAndContinue()}
+                      >
+                        {steamOpening ? 'Opening Steam...' : 'Open Steam and Play'}
+                      </button>
+                    </footer>
+                  </section>
+                </div>
+              )}
+
+              {showSpacewarPrompt && (
+                <div className="dialog-backdrop" role="presentation">
+                  <section className="install-modal" role="dialog" aria-modal="true" aria-labelledby="spacewar-title">
+                    <div className="modal-handle" />
+                    <header>
+                      <button type="button" onClick={() => setShowSpacewarPrompt(false)} aria-label="Cancel">
+                        <X size={17} />
+                      </button>
+                      <h2 id="spacewar-title">â™ï¸ YĂªu cáº§u: Spacewar (App 480)</h2>
+                      <p>Launcher cáº§n <strong>Spacewar</strong> Ä‘Æ°á»£c cĂ i trĂªn Steam Ä‘á»ƒ khá»Ÿi cháº¡y game. ÄĂ¢y lĂ  game miá»…n phĂ­, má»i tĂ i khoáº£n Steam Ä‘á»u cĂ³ thá»ƒ táº£i.</p>
+                    </header>
+                    <div className="install-modal-body">
+                      <div style={{ background: 'rgba(77, 164, 255, 0.1)', border: '1px solid rgba(77, 164, 255, 0.35)', padding: '16px', borderRadius: '8px', color: '#b3d8ff', lineHeight: 1.7 }}>
+                        <p style={{ margin: 0 }}>
+                          đŸ® Nháº¥n <strong>"Táº£i Spacewar"</strong> â†’ Steam sáº½ má»Ÿ vĂ  tá»± Ä‘á»™ng táº£i vá».<br />
+                          Sau khi táº£i xong (chá»‰ ~15MB), nháº¥n <strong>Play</strong> láº¡i trĂªn Launcher.
+                        </p>
+                      </div>
+                    </div>
+                    <footer>
+                      <button type="button" className="secondary" onClick={() => setShowSpacewarPrompt(false)}>
+                        Há»§y
+                      </button>
+                      <button
+                        type="button"
+                        className="primary-control downloading-btn"
+                        style={{ padding: '8px 20px', borderRadius: '6px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        disabled={spacewarDownloading}
+                        onClick={async () => {
+                          setSpacewarDownloading(true)
+                          try {
+                            await invoke('install_spacewar')
+                            setScanStatus('Steam Ä‘ang táº£i Spacewar (app 480). Vui lĂ²ng chá» Steam xong rá»“i nháº¥n Play láº¡i.')
+                          } catch (e) {
+                            setScanStatus('KhĂ´ng thá»ƒ má»Ÿ Steam: ' + String(e))
+                          } finally {
+                            setSpacewarDownloading(false)
+                            setShowSpacewarPrompt(false)
+                          }
+                        }}
+                      >
+                        <Download size={16} />
+                        {spacewarDownloading ? 'Äang má»Ÿ Steam...' : 'Táº£i Spacewar qua Steam'}
+                      </button>
+                    </footer>
+                  </section>
+                </div>
+              )}
+
+              {showLogoutConfirm && (
+                <div className="dialog-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}>
+                  <section
+                    className="logout-modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="logout-title"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="logout-modal-icon">
+                      <svg width="36" height="36" viewBox="0 0 127.14 96.36" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z" fill="#5865f2" />
+                      </svg>
+                    </div>
+                    <h3 id="logout-title" className="logout-modal-title">Sign Out of Discord</h3>
+                    <p className="logout-modal-desc">Are you sure you want to sign out?<br />You will need to re-authorize to use online features.</p>
+                    <div className="logout-modal-actions">
+                      <button type="button" className="logout-modal-btn cancel" onClick={() => setShowLogoutConfirm(false)}>
+                        Cancel
+                      </button>
+                      <button type="button" className="logout-modal-btn confirm" onClick={() => void executeLogoutDiscord()}>
+                        Sign Out
+                      </button>
+                    </div>
+                  </section>
+                </div>
+              )}
+              </section>
+            </div>
+          </ConnectedThemeShellHost>
+          <TransferDock
+            visible={showTransferDock}
+            gameTitle={activeJobGame?.title ?? activeJob.gameId}
+            gameArtwork={activeJobArtwork}
+            job={activeJob}
+            progress={phaseProgress}
+            isPaused={isPaused}
+            onPause={pauseOrResume}
+            onOpen={() => {
+              setSelectedGameId(activeJob.gameId)
+              setSelectedVersion(activeJob.toVersion)
+              if (activeJob.installPath) {
+                setInstallPath(activeJob.installPath)
+                setInstallRoot(activeJob.installPath)
+              }
+              setActiveTab('Downloads')
+            }}
+          />
+          <Suspense fallback={null}>
+            <UpdateCenter
+              open={showUpdateCenter}
+              update={launcherUpdate}
+              progress={launcherUpdateProgress}
+              speed={launcherUpdateSpeed}
+              eta={launcherUpdateEta}
+              onClose={() => setShowUpdateCenter(false)}
+              onStart={() => void applyLauncherUpdate()}
+              onRetry={() => void applyLauncherUpdate()}
+              onSkip={() => { setUpdateSkipped(true); setShowUpdateCenter(false) }}
+            />
+          </Suspense>
+          <AchievementToastOverlay />
+          <NotificationToasts
+            notifications={toastNotifications}
+            onOpen={openNotificationRecord}
+            onDismiss={(notificationId) =>
+              setToastNotifications((current) => current.filter((item) => item.id !== notificationId))
+            }
+          />
+          <Suspense fallback={null}>
+            <HelpCenter
+              key={`${activeTab}:${helpCenterOpen}`}
+              open={helpCenterOpen}
+              activeTab={activeTab}
+              onClose={() => setHelpCenterOpen(false)}
+              onReplayTour={() => {
+                updatePreference('onboardingCompleted', false)
+                setActiveTab('Home')
+              }}
+            />
+          </Suspense>
+          {shouldShowOnboarding ? (
+            <Onboarding
+              uiTheme={preferences.uiTheme}
+              onThemeChange={(theme) => updatePreference('uiTheme', theme)}
+              onComplete={() => updatePreference('onboardingCompleted', true)}
+            />
+          ) : null}
+          {showDonate ? (
+            <div className="donate-modal-backdrop" role="presentation" onMouseDown={() => setShowDonate(false)}>
+              <section
+                className="donate-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="donate-title"
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <button type="button" className="donate-modal-close" onClick={() => setShowDonate(false)} aria-label="Close">
+                  <X size={18} />
+                </button>
+                <div className="donate-modal-copy">
+                  <span><Heart size={18} /></span>
+                  <h2 id="donate-title">Support 0xoLemon</h2>
+                  <p>Scan the QR code with your banking app. Donation is optional and does not unlock launcher features.</p>
+                </div>
+                <img src={donateImage} alt="0xoLemon donation QR code" />
+              </section>
+            </div>
+          ) : null}
+          {/* Gate shown when intro starts exiting (introExiting=true at 2400ms) so no gap */}
+          <div style={!introExiting ? { visibility: 'hidden', pointerEvents: 'none' } : undefined}>
+            <DiscordAccessGate
+              status={offlineModeEnabled ? { ...discordAuth, state: 'authorized' } : discordAuth}
+              busy={discordAuthBusy}
+              onLogin={() => void loginDiscord()}
+              onRefresh={() => void refreshDiscordAccess(true)}
+              onJoinServer={() => void openUrl(discordAuth.guildInvite)}
+              onLogout={() => void executeLogoutDiscord()}
+              onEnterOfflineMode={() => setOfflineModeEnabled(true)}
+            />
+          </div>
+          {showWhatsNewModal && (
+            <Suspense fallback={null}>
+              <ChangelogModal onClose={() => setShowWhatsNewModal(false)} />
+            </Suspense>
+          )}
+
+          <DefenderExclusionDialog
+            isOpen={defenderExclusion.isDialogOpen}
+            path={defenderExclusion.exclusionPath}
+            onClose={defenderExclusion.handleClose}
+            onAccept={defenderExclusion.handleAccept}
+          />
+
+          {discordAuth.state === 'authorized' && discordAuth.user ? (
+            <Suspense fallback={null}>
+              <SocialPrototypeLayer
+                reducedMotion={reducedMotion}
+                onOpenSocial={() => {
+                  setNotificationOpen(false)
+                  setActiveTab('Social')
+                }}
+              />
+            </Suspense>
+          ) : null}
+
+          <SaveCloseGuardModal />
+        </div>
+        </SocialPrototypeProvider>
+      )
+      }
+    </MotionConfig >
+    </GlobalAudioProvider>
+  )
+}
+
+function notificationIdToNumber(value: string) {
+  let hash = 0
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0
+  }
+  return Math.abs(hash || 1)
+}
+
+function titleCase(value: string) {
+  return value
+    .replace(/[-_]/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function safeGameImageUrl(assetId: string | null | undefined, assets: Record<string, string>) {
+  const resolved = assetUrlForId(assetId, assets)
+  if (!resolved) return undefined
+  if (/^https?:/i.test(resolved)) return isAllowedDirectImageUrl(resolved) ? resolved : undefined
+  return resolved
+}

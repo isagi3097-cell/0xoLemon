@@ -1,0 +1,117 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "0xoLemon",
+  "version": "2.0.64",
+  "identifier": "com.0xolemon.launcher",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-lua-steamkit.ps1 && node scripts/check-lua-steamkit-package.mjs && powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/build-cloudredirect.ps1 -Configuration Release && powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/prepare-dependencies.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/build-gse-core.ps1 && node scripts/check-gse-package.mjs && npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "overlay",
+        "title": "Overlay",
+        "url": "/overlay",
+        "width": 1920,
+        "height": 1080,
+        "fullscreen": false,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "transparent": true,
+        "decorations": false,
+        "shadow": false,
+        "visible": false,
+        "skipTaskbar": true
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPLOCALDATA/home-wallpapers/**"
+        ]
+      }
+    },
+    "withGlobalTauri": true
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "resources": [
+      "resources/steam_hooks/*",
+      "resources/emu/**/*",
+      "resources/lua-steamkit/**/*",
+      "resources/gse-uc/manifest.json",
+      "resources/gse-uc/launcher-asset-overrides.json",
+      "resources/gse-uc/bin/*",
+      "resources/gse-uc/7zip/*",
+      "resources/gse-uc/preserve_seed/*",
+      "resources/gse-uc/embedded/gse/**/*",
+      "resources/gse-uc/embedded/dinput/**/*",
+      "resources/gse-uc/embedded/migrate_gse/**/*",
+      "resources/gse-uc/embedded/rune/**/*",
+      "resources/gse-uc/embedded/rune_steamstub/**/*",
+      "resources/gse-uc/embedded/steamless/**/*",
+      "resources/gse-uc/embedded/uc_online/**/*",
+      "resources/gse-uc/embedded/gse_tools/component.json",
+      "resources/gse-uc/embedded/gse_tools/*/*.exe",
+      "resources/gse-uc/embedded/gse_tools/*/*.cfg",
+      "resources/gse-uc/embedded/gse_tools/*/*.jpg",
+      "resources/gse-uc/embedded/gse_tools/*/*.txt",
+      "resources/gse-uc/embedded/gse_tools/*/*.md",
+      "resources/gse-uc/embedded/gse_tools/*/_internal/**/*",
+      "resources/gse-uc/embedded/gse_tools/*/_DEFAULT/**/*",
+      "resources/gse-uc/embedded/gse_tools/*/appid_finder/**/*",
+      "resources/gse-uc/embedded/gse_tools/*/bat/**/*",
+      "../src/vendor/gse-uc-setup/THIRD_PARTY_NOTICES.md",
+      "../steam_appids_mapping.json",
+      "src/resources/cloud-save/**/*",
+      "resources/cloud_redirect/**/*",
+      "resources/tools/**/*",
+      "resources/redist/*.exe",
+      "resources/redist/*.msi",
+      "resources/redist/*.zip",
+      "resources/redist/README.txt",
+      "vendor/cloudredirect/Version.props",
+      "binaries/**/*"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installMode": "perMachine",
+        "installerHooks": "installer-hooks.nsh"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhCNDVDODI1MThGRUY5QUEKUldTcStmNFlKY2hGaTJSV0tna3IzMGhWTHlxWC9hM0dlclJ6c0dhUEtDKzBNN1NYS3NMeDlrZysK",
+      "endpoints": [
+        "https://github.com/isagi3097-cell/0xoLemon/releases/latest/download/latest.json",
+        "https://huggingface.co/datasets/Immaking/Luas/resolve/main/launcher/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "0xolemon"
+        ]
+      }
+    }
+  }
+}

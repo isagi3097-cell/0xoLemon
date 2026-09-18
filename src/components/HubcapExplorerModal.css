@@ -1,0 +1,568 @@
+/* Hubcap Explorer Modal Styles */
+.hubcap-modal-overlay {
+  z-index: 10000;
+}
+
+.hubcap-modal-container {
+  width: min(1060px, 95vw);
+  height: min(800px, 90vh);
+  display: flex;
+  flex-direction: column;
+  background: var(--theme-modal-bg, #12151c);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  animation: modal-scale-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.hubcap-modal-header {
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  background: color-mix(in oklab, var(--theme-modal-bg, #12151c) 85%, var(--theme-accent, #00d2ff) 15%);
+}
+
+.hubcap-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hubcap-icon-wrap {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: color-mix(in oklab, transparent 85%, var(--theme-accent, #00d2ff) 15%);
+  color: var(--theme-accent, #00d2ff);
+  border: 1px solid color-mix(in oklab, transparent 75%, var(--theme-accent, #00d2ff) 25%);
+}
+
+.hubcap-header-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-strong, #fff);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hubcap-header-subtitle {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted, rgba(255, 255, 255, 0.6));
+}
+
+.hubcap-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted, rgba(255, 255, 255, 0.6));
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  transition: all 150ms ease;
+}
+
+.hubcap-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-strong, #fff);
+}
+
+.hubcap-tabs-nav {
+  display: flex;
+  gap: 8px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  background: rgba(0, 0, 0, 0.25);
+  align-items: center;
+}
+
+.hubcap-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted, rgba(255, 255, 255, 0.7));
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 160ms ease;
+}
+
+.hubcap-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-strong, #fff);
+}
+
+.hubcap-tab-btn.is-active {
+  background: color-mix(in oklab, transparent 80%, var(--theme-accent, #00d2ff) 20%);
+  border-color: color-mix(in oklab, transparent 65%, var(--theme-accent, #00d2ff) 35%);
+  color: var(--theme-accent, #00d2ff);
+}
+
+.hubcap-free-badge {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #4ade80;
+  font-weight: 500;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.hubcap-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* Tab 1: Library & Search */
+.hubcap-search-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.hubcap-input-wrap {
+  flex: 1;
+  min-width: 240px;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.hubcap-search-input {
+  width: 100%;
+  padding: 9px 14px 9px 36px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  color: var(--text-strong, #fff);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 150ms ease;
+}
+
+.hubcap-search-input:focus {
+  border-color: var(--theme-accent, #00d2ff);
+}
+
+.hubcap-input-icon {
+  position: absolute;
+  left: 12px;
+  color: var(--muted, rgba(255, 255, 255, 0.5));
+  pointer-events: none;
+}
+
+.hubcap-select {
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  color: var(--text-strong, #fff);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+}
+
+.hubcap-primary-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  border-radius: 8px;
+  background: var(--theme-accent, #00d2ff);
+  color: #000;
+  font-weight: 600;
+  font-size: 13px;
+  border: none;
+  cursor: pointer;
+  transition: opacity 150ms ease;
+}
+
+.hubcap-primary-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.hubcap-primary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hubcap-secondary-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  color: var(--text-strong, #fff);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.hubcap-secondary-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.hubcap-secondary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hubcap-games-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.hubcap-game-card {
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  padding: 12px;
+  gap: 8px;
+  transition: transform 160ms ease, border-color 160ms ease;
+}
+
+.hubcap-game-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklab, transparent 60%, var(--theme-accent, #00d2ff) 40%);
+}
+
+.hubcap-game-header {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.hubcap-game-img {
+  width: 72px;
+  height: 42px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #1a1e28;
+  flex-shrink: 0;
+}
+
+.hubcap-game-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.hubcap-game-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong, #fff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hubcap-game-appid {
+  font-size: 11px;
+  color: var(--muted, rgba(255, 255, 255, 0.5));
+}
+
+.hubcap-game-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.hubcap-avail-pill {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.hubcap-avail-pill.available {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.hubcap-avail-pill.missing {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted, rgba(255, 255, 255, 0.5));
+}
+
+.hubcap-card-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-strong, #fff);
+  cursor: pointer;
+  transition: all 140ms ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hubcap-card-btn:hover {
+  background: var(--theme-accent, #00d2ff);
+  color: #000;
+}
+
+.hubcap-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-bottom: 8px;
+}
+
+.hubcap-page-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+  color: var(--text-strong, #fff);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.hubcap-page-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Tab 2: App Inspector */
+.hubcap-panel {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hubcap-panel-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-strong, #fff);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.hubcap-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.hubcap-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.hubcap-meta-label {
+  font-size: 11px;
+  color: var(--muted, rgba(255, 255, 255, 0.5));
+}
+
+.hubcap-meta-val {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong, #fff);
+}
+
+.hubcap-depot-table-wrap {
+  max-height: 220px;
+  overflow-y: auto;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.hubcap-depot-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.hubcap-depot-table th {
+  text-align: left;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--muted, rgba(255, 255, 255, 0.6));
+  font-weight: 600;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.hubcap-depot-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: var(--text-strong, #fff);
+}
+
+.hubcap-depot-table tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.hubcap-copy-btn-sm {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  color: var(--muted, rgba(255, 255, 255, 0.6));
+  font-size: 10px;
+  margin-left: 6px;
+  transition: all 120ms ease;
+}
+
+.hubcap-copy-btn-sm:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-strong, #fff);
+}
+
+.hubcap-code-box {
+  position: relative;
+  background: #0d1117;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  color: #c9d1d9;
+  max-height: 220px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.hubcap-code-copy-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text-strong, #fff);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.hubcap-code-copy-btn:hover {
+  background: var(--theme-accent, #00d2ff);
+  color: #000;
+}
+
+.hubcap-subtabs {
+  display: flex;
+  gap: 6px;
+}
+
+.hubcap-subtab-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--muted, rgba(255, 255, 255, 0.7));
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.hubcap-subtab-btn.is-active {
+  background: color-mix(in oklab, transparent 80%, var(--theme-accent, #00d2ff) 20%);
+  border-color: var(--theme-accent, #00d2ff);
+  color: var(--theme-accent, #00d2ff);
+  font-weight: 600;
+}
+
+/* Tab 3: Tools */
+.hubcap-alert-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.hubcap-alert-box.info {
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  color: #93c5fd;
+}
+
+.hubcap-alert-box.warning {
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.25);
+  color: #fde047;
+}
+
+.hubcap-alert-box.success {
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  color: #86efac;
+}
+
+.hubcap-alert-box.danger {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+}
+
+.hubcap-form-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.hubcap-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-strong, #fff);
+  cursor: pointer;
+}

@@ -1,0 +1,281 @@
+import { DEFAULT_STORE_ROOT } from './installPaths'
+import { isThemeAccentMode, isUiThemeId, type ThemeAccentMode, type UiThemeId } from './uiThemes'
+
+export type StartupPage = 'Home' | 'Store' | 'Backup Game' | 'Library' | 'Downloads' | 'CloudRedirect'
+export type CloseBehavior = 'exit' | 'minimize'
+export type MotionMode = 'full' | 'system' | 'reduced'
+export type ClockFormat = 'system' | '12h' | '24h'
+export type NotificationCategory =
+  | 'launcher'
+  | 'installs'
+  | 'downloads'
+  | 'cloudSaves'
+  | 'storage'
+  | 'achievements'
+  | 'errors'
+
+export type NotificationCategoryPreferences = Record<NotificationCategory, boolean>
+
+export type LauncherPreferences = {
+  startupPage: StartupPage
+  closeBehavior: CloseBehavior
+  autoCheckLauncherUpdates: boolean
+  confirmBeforeUninstall: boolean
+  confirmBeforeCancelCleanup: boolean
+  confirmBeforeClearCache: boolean
+  confirmBeforeCloudRestore: boolean
+  motionMode: MotionMode
+  glassEffects: boolean
+  uiTheme: UiThemeId
+  themeEngineVersion: number
+  themeAccentMode: ThemeAccentMode
+  accentHue: number
+  accentChroma: number
+  themeIntensity: number
+  themeContrast: number
+  themeBrightness: number
+  dynamicTheme: boolean
+  dynamicThemeSpeed: number
+  scrollEffects: boolean
+  hoverHints: boolean
+  showContinuePlaying: boolean
+  showRecentGames: boolean
+  showActiveTasks: boolean
+  showDiscordCard: boolean
+  showDonateCard: boolean
+  carouselAutoplay: boolean
+  showClock: boolean
+  showDate: boolean
+  showNetworkStatus: boolean
+  showDownloadIndicator: boolean
+  showNotificationBell: boolean
+  clockFormat: ClockFormat
+  inAppNotifications: boolean
+  windowsNotifications: boolean
+  notificationSound: boolean
+  doNotDisturbWhilePlaying: boolean
+  notificationCategories: NotificationCategoryPreferences
+  onboardingCompleted: boolean
+  openDownloadsOnJobStart: boolean
+  pauseDownloadsBeforeLaunch: boolean
+  playInstallCompleteSound: boolean
+  defaultLibraryRoot: string
+  /** Sidebar tabs the user has chosen to hide from the navigation rail. */
+  hiddenNavTabs: string[]
+}
+
+export const DEFAULT_NOTIFICATION_CATEGORIES: NotificationCategoryPreferences = {
+  launcher: true,
+  installs: true,
+  downloads: true,
+  cloudSaves: true,
+  storage: true,
+  achievements: true,
+  errors: true,
+}
+
+export const DEFAULT_LAUNCHER_PREFERENCES: LauncherPreferences = {
+  startupPage: 'Home',
+  closeBehavior: 'exit',
+  autoCheckLauncherUpdates: true,
+  confirmBeforeUninstall: true,
+  confirmBeforeCancelCleanup: true,
+  confirmBeforeClearCache: true,
+  confirmBeforeCloudRestore: true,
+  motionMode: 'system',
+  glassEffects: true,
+  uiTheme: 'lightning',
+  themeEngineVersion: 3,
+  themeAccentMode: 'native',
+  accentHue: 82,
+  accentChroma: 56,
+  themeIntensity: 64,
+  themeContrast: 58,
+  themeBrightness: 70,
+  dynamicTheme: false,
+  dynamicThemeSpeed: 46,
+  scrollEffects: true,
+  hoverHints: true,
+  showContinuePlaying: true,
+  showRecentGames: true,
+  showActiveTasks: true,
+  showDiscordCard: true,
+  showDonateCard: true,
+  carouselAutoplay: true,
+  showClock: true,
+  showDate: true,
+  showNetworkStatus: true,
+  showDownloadIndicator: true,
+  showNotificationBell: true,
+  clockFormat: 'system',
+  inAppNotifications: true,
+  windowsNotifications: false,
+  notificationSound: true,
+  doNotDisturbWhilePlaying: true,
+  notificationCategories: DEFAULT_NOTIFICATION_CATEGORIES,
+  onboardingCompleted: false,
+  openDownloadsOnJobStart: true,
+  pauseDownloadsBeforeLaunch: false,
+  playInstallCompleteSound: true,
+  defaultLibraryRoot: DEFAULT_STORE_ROOT,
+  hiddenNavTabs: [],
+}
+
+const STORAGE_KEY = '0xo_launcher_preferences_v4'
+const PREVIOUS_V3_STORAGE_KEY = '0xo_launcher_preferences_v3'
+const PREVIOUS_STORAGE_KEY = '0xo_launcher_preferences_v2'
+const LEGACY_STORAGE_KEY = '0xo_launcher_preferences_v1'
+
+function isStartupPage(value: unknown): value is StartupPage {
+  return (
+    value === 'Home' ||
+    value === 'Store' ||
+    value === 'Library' ||
+    value === 'Downloads' ||
+    value === 'Cloud Saves'
+  )
+}
+
+function isCloseBehavior(value: unknown): value is CloseBehavior {
+  return value === 'exit' || value === 'minimize'
+}
+
+function isMotionMode(value: unknown): value is MotionMode {
+  return value === 'full' || value === 'system' || value === 'reduced'
+}
+
+function isClockFormat(value: unknown): value is ClockFormat {
+  return value === 'system' || value === '12h' || value === '24h'
+}
+
+function normalizeRoot(value: unknown) {
+  if (typeof value !== 'string') return DEFAULT_STORE_ROOT
+  const trimmed = value.trim().replace(/[\\/]+$/, '')
+  return trimmed || DEFAULT_STORE_ROOT
+}
+
+function booleanValue(value: unknown, fallback: boolean) {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+function numberInRange(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback
+}
+
+function normalizeCategories(value: unknown): NotificationCategoryPreferences {
+  const parsed =
+    value && typeof value === 'object'
+      ? (value as Partial<NotificationCategoryPreferences>)
+      : {}
+  return {
+    launcher: booleanValue(parsed.launcher, true),
+    installs: booleanValue(parsed.installs, true),
+    downloads: booleanValue(parsed.downloads, true),
+    cloudSaves: booleanValue(parsed.cloudSaves, true),
+    storage: booleanValue(parsed.storage, true),
+    achievements: booleanValue(parsed.achievements, true),
+    errors: booleanValue(parsed.errors, true),
+  }
+}
+
+export function loadLauncherPreferences(): LauncherPreferences {
+  if (typeof window === 'undefined') return DEFAULT_LAUNCHER_PREFERENCES
+  try {
+    const currentRaw = window.localStorage.getItem(STORAGE_KEY)
+    const v3Raw = currentRaw ? null : window.localStorage.getItem(PREVIOUS_V3_STORAGE_KEY)
+    const previousRaw = currentRaw || v3Raw ? null : window.localStorage.getItem(PREVIOUS_STORAGE_KEY)
+    const legacyRaw = currentRaw || v3Raw || previousRaw ? null : window.localStorage.getItem(LEGACY_STORAGE_KEY)
+    const raw = currentRaw ?? v3Raw ?? previousRaw ?? legacyRaw
+    if (!raw) return DEFAULT_LAUNCHER_PREFERENCES
+    const parsed = JSON.parse(raw) as Partial<LauncherPreferences> & { reduceMotion?: boolean; accentSoftness?: number }
+    const migratedStartupPage =
+      legacyRaw && parsed.startupPage === 'Library'
+        ? 'Store'
+        : isStartupPage(parsed.startupPage)
+          ? parsed.startupPage
+          : previousRaw || legacyRaw
+            ? 'Store'
+            : DEFAULT_LAUNCHER_PREFERENCES.startupPage
+    const migratedMotionMode = isMotionMode(parsed.motionMode)
+      ? parsed.motionMode
+      : parsed.reduceMotion
+        ? 'reduced'
+        : 'system'
+    const migratedUiTheme: UiThemeId = isUiThemeId(parsed.uiTheme)
+      ? parsed.uiTheme
+      : currentRaw
+        ? DEFAULT_LAUNCHER_PREFERENCES.uiTheme
+        : 'default'
+    const migratedThemeAccentMode: ThemeAccentMode = isThemeAccentMode(parsed.themeAccentMode)
+      ? parsed.themeAccentMode
+      : migratedUiTheme === 'default'
+        ? 'custom'
+        : 'native'
+
+    return {
+      startupPage: migratedStartupPage,
+      closeBehavior: isCloseBehavior(parsed.closeBehavior)
+        ? parsed.closeBehavior
+        : DEFAULT_LAUNCHER_PREFERENCES.closeBehavior,
+      autoCheckLauncherUpdates: booleanValue(parsed.autoCheckLauncherUpdates, true),
+      confirmBeforeUninstall: booleanValue(parsed.confirmBeforeUninstall, true),
+      confirmBeforeCancelCleanup: booleanValue(parsed.confirmBeforeCancelCleanup, true),
+      confirmBeforeClearCache: booleanValue(parsed.confirmBeforeClearCache, true),
+      confirmBeforeCloudRestore: booleanValue(parsed.confirmBeforeCloudRestore, true),
+      motionMode: migratedMotionMode,
+      glassEffects: booleanValue(parsed.glassEffects, true),
+      uiTheme: migratedUiTheme,
+      themeEngineVersion: 3,
+      themeAccentMode: migratedThemeAccentMode,
+      accentHue: numberInRange(parsed.accentHue, DEFAULT_LAUNCHER_PREFERENCES.accentHue, 0, 360),
+      accentChroma: numberInRange(
+        parsed.accentChroma,
+        parsed.accentSoftness == null
+          ? DEFAULT_LAUNCHER_PREFERENCES.accentChroma
+          : numberInRange(((0.125 - (numberInRange(parsed.accentSoftness, 64, 0, 100) / 100) * 0.065) - 0.025) / 0.105 * 100, DEFAULT_LAUNCHER_PREFERENCES.accentChroma, 0, 100),
+        0,
+        100,
+      ),
+      themeIntensity: numberInRange(parsed.themeIntensity, DEFAULT_LAUNCHER_PREFERENCES.themeIntensity, 0, 100),
+      themeContrast: numberInRange(parsed.themeContrast, DEFAULT_LAUNCHER_PREFERENCES.themeContrast, 0, 100),
+      themeBrightness: numberInRange(parsed.themeBrightness, DEFAULT_LAUNCHER_PREFERENCES.themeBrightness, 0, 100),
+      dynamicTheme: booleanValue(parsed.dynamicTheme, DEFAULT_LAUNCHER_PREFERENCES.dynamicTheme),
+      dynamicThemeSpeed: numberInRange(parsed.dynamicThemeSpeed, DEFAULT_LAUNCHER_PREFERENCES.dynamicThemeSpeed, 0, 100),
+      scrollEffects: booleanValue(parsed.scrollEffects, true),
+      hoverHints: booleanValue(parsed.hoverHints, true),
+      showContinuePlaying: booleanValue(parsed.showContinuePlaying, true),
+      showRecentGames: booleanValue(parsed.showRecentGames, true),
+      showActiveTasks: booleanValue(parsed.showActiveTasks, true),
+      showDiscordCard: booleanValue(parsed.showDiscordCard, true),
+      showDonateCard: booleanValue(parsed.showDonateCard, true),
+      carouselAutoplay: booleanValue(parsed.carouselAutoplay, true),
+      showClock: booleanValue(parsed.showClock, true),
+      showDate: booleanValue(parsed.showDate, true),
+      showNetworkStatus: booleanValue(parsed.showNetworkStatus, true),
+      showDownloadIndicator: booleanValue(parsed.showDownloadIndicator, true),
+      showNotificationBell: booleanValue(parsed.showNotificationBell, true),
+      clockFormat: isClockFormat(parsed.clockFormat) ? parsed.clockFormat : 'system',
+      inAppNotifications: booleanValue(parsed.inAppNotifications, true),
+      windowsNotifications: booleanValue(parsed.windowsNotifications, false),
+      notificationSound: booleanValue(parsed.notificationSound, true),
+      doNotDisturbWhilePlaying: booleanValue(parsed.doNotDisturbWhilePlaying, true),
+      notificationCategories: normalizeCategories(parsed.notificationCategories),
+      onboardingCompleted: booleanValue(parsed.onboardingCompleted, false),
+      openDownloadsOnJobStart: booleanValue(parsed.openDownloadsOnJobStart, true),
+      pauseDownloadsBeforeLaunch: booleanValue(parsed.pauseDownloadsBeforeLaunch, false),
+      playInstallCompleteSound: booleanValue(parsed.playInstallCompleteSound, true),
+      defaultLibraryRoot: normalizeRoot(parsed.defaultLibraryRoot),
+      hiddenNavTabs: Array.isArray(parsed.hiddenNavTabs)
+        ? parsed.hiddenNavTabs.filter((tab): tab is string => typeof tab === 'string')
+        : [],
+    }
+  } catch {
+    return DEFAULT_LAUNCHER_PREFERENCES
+  }
+}
+
+export function saveLauncherPreferences(preferences: LauncherPreferences) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences))
+}

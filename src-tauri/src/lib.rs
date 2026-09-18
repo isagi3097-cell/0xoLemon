@@ -1,0 +1,2162 @@
+pub mod achievement_watcher;
+pub mod asset_cache;
+pub mod asset_pack;
+pub mod builder;
+pub mod chat;
+pub mod cloud_redirect;
+pub mod cloud_redirect_v2;
+pub mod cloud_save;
+pub(crate) mod credential_store;
+pub mod debug_log;
+pub mod defender_exclusion;
+pub mod denuvo;
+pub mod depot_archive;
+pub mod depot_crypto;
+pub mod depot_downloader;
+pub mod discord_auth;
+pub mod game_session_state;
+pub mod game_tags;
+pub mod game_tools;
+pub mod game_tools_import;
+pub mod gse_auto_setup;
+pub mod gse_original_core;
+pub mod gse_uc_setup;
+pub mod home_wallpaper;
+pub mod install_discovery;
+pub mod job;
+pub mod launch;
+pub mod library_layout;
+pub mod lightning_integration;
+pub mod local_save_backup;
+pub mod lua_experience;
+pub mod lua_experience_policy;
+pub mod lua_live;
+pub mod lua_runtime_profiles;
+pub mod lua_sources;
+mod lua_steam_auth;
+pub mod lua_task_queue;
+pub mod lua_variant_vault;
+pub mod lua_workshop;
+pub mod managed_file_transaction;
+pub mod managed_game_runtime;
+pub mod manifest;
+pub mod notifications;
+pub mod offline_cache;
+#[cfg(test)]
+mod omni_behavior_contract;
+pub mod open_steam_tool;
+pub mod overlay_injector;
+pub mod platform;
+pub mod process_manager;
+pub mod remote_paths;
+pub mod remote_web;
+pub mod save_paths;
+pub mod scanner;
+pub mod secret_store;
+mod secure_keys;
+pub mod security;
+pub mod sff_packages;
+pub mod shop_lua;
+pub mod social;
+pub mod steam;
+pub mod steam_manifest_integrity;
+pub mod steam_integration;
+pub mod steam_launch_options;
+pub mod steam_pattern_scanner;
+pub mod steam_vn_fix;
+pub mod steam_api_proxy;
+pub mod steamgriddb;
+pub mod steamless;
+pub mod storage;
+#[cfg(test)]
+mod testne_audit;
+pub mod bypass_fix;
+pub mod translations;
+pub mod updater;
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+
+use asset_pack::{AssetBlob, GameCatalog, GameDetail};
+use job::{
+    GameInstallState, JobControl, JobJournal, LaunchReport, LauncherSnapshot, UninstallReport,
+    VerifyInstallReport,
+};
+use launch::ResolvedGameLaunchConfig;
+use scanner::ScanReport;
+use tauri::{AppHandle, Emitter, Manager, State};
+
+#[derive(Clone, Default)]
+struct InstallPlanCoordinator {
+    active: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+}
+
+impl InstallPlanCoordinator {
+    fn begin(&self, key: String) -> Arc<AtomicBool> {
+        let token = Arc::new(AtomicBool::new(false));
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(previous) = active.insert(key, token.clone()) {
+            previous.store(true, Ordering::Release);
+        }
+        token
+    }
+
+    fn finish(&self, key: &str, token: &Arc<AtomicBool>) {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if active
+            .get(key)
+            .is_some_and(|current| Arc::ptr_eq(current, token))
+        {
+            active.remove(key);
+        }
+    }
+}
+
+#[tauri::command]
+fn exit_app(app: AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
+fn restart_launcher(app: AppHandle) {
+    app.request_restart();
+}
+
+#[tauri::command]
+fn get_game_ost_repo_info(game_id: String) -> Vec<(String, String, Option<String>)> {
+    let mut results = Vec::new();
+    let bases = remote_paths::depot_repo_base_urls();
+    let hf_dir_name = remote_paths::hf_dir_name_for_game_id(&game_id);
+    let encoded_dir = remote_paths::encode_hf_relative_path(&hf_dir_name);
+
+    for (base, token) in bases {
+        let tree_base = base
+            .replace("https://huggingface.co/", "https://huggingface.co/api/")
+            .replace("/resolve/", "/tree/");
+
+        let tree_url = format!("{tree_base}/{encoded_dir}/sound_tracks");
+        let resolve_url = format!("{base}/{encoded_dir}/sound_tracks");
+
+        results.push((tree_url, resolve_url, token));
+    }
+    results
+}
+
+#[tauri::command]
+fn get_disk_free_space(path: String) -> Result<u64, String> {
+    fs2::free_space(PathBuf::from(path)).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn get_file_size(path: String) -> Result<u64, String> {
+    use std::fs::metadata;
+    metadata(&path)
+        .map(|m| m.len())
+        .map_err(|e| format!("Failed to get file size: {}", e))
+}
+
+#[derive(serde::Serialize)]
+struct DiskSpaceCheck {
+    has_space: bool,
+    free_space: u64,
+    required_space: u64,
+    reason: Option<String>,
+}
+
+#[tauri::command]
+async fn check_install_disk_space(
+    install_path: String,
+    required_size_bytes: u64,
+) -> Result<DiskSpaceCheck, String> {
+    fn human_bytes(value: u64) -> String {
+        const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+        if value == 0 {
+            return "0 B".to_string();
+        }
+        let unit_index = ((value as f64).log2() / 10.0).floor() as usize;
+        let unit_index = unit_index.min(UNITS.len() - 1);
+        let divisor = 1u64 << (unit_index * 10);
+        let scaled = value as f64 / divisor as f64;
+        format!("{:.2} {}", scaled, UNITS[unit_index])
+    }
+
+    // Use provided install path and pre-calculated size from frontend
+    let install_path = PathBuf::from(&install_path);
+    let required_space = required_size_bytes; // Already includes game + chunks + buffer from frontend
+
+    // Check free space on install drive or closest existing parent
+    let mut current_path = install_path.clone();
+    let mut free_space_result = fs2::free_space(&current_path);
+    while free_space_result.is_err() {
+        if let Some(parent) = current_path.parent() {
+            current_path = parent.to_path_buf();
+            free_space_result = fs2::free_space(&current_path);
+        } else {
+            break;
+        }
+    }
+
+    let free_space = free_space_result.map_err(|e| {
+        format!(
+            "Could not determine free space for {}: {}",
+            install_path.display(),
+            e
+        )
+    })?;
+
+    let has_space = free_space >= required_space;
+    let reason = if !has_space {
+        Some(format!(
+            "Not enough disk space. Required: {}, Available: {}",
+            human_bytes(required_space),
+            human_bytes(free_space)
+        ))
+    } else {
+        None
+    };
+
+    Ok(DiskSpaceCheck {
+        has_space,
+        free_space,
+        required_space,
+        reason,
+    })
+}
+
+#[tauri::command]
+fn check_spacewar_installed() -> bool {
+    steam_integration::is_spacewar_installed()
+}
+
+#[tauri::command]
+fn install_spacewar() -> Result<(), String> {
+    steam_integration::install_spacewar()
+}
+
+#[tauri::command]
+async fn get_discord_auth_status(
+    app: AppHandle,
+) -> Result<discord_auth::DiscordAuthStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || discord_auth::get_status(&app))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn login_discord(app: AppHandle) -> Result<discord_auth::DiscordAuthStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || discord_auth::login(&app))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+fn logout_discord(app: AppHandle) -> Result<discord_auth::DiscordAuthStatus, String> {
+    discord_auth::logout(&app)
+}
+
+#[tauri::command]
+fn is_steam_running() -> bool {
+    steam_integration::is_steam_running()
+}
+
+#[tauri::command]
+fn open_steam() -> Result<(), String> {
+    steam_integration::open_steam()
+}
+
+#[tauri::command]
+fn open_steam_big_picture() -> Result<(), String> {
+    steam_integration::open_big_picture()
+}
+
+#[tauri::command]
+async fn restart_steam() -> Result<steam_integration::RestartSteamReport, String> {
+    tauri::async_runtime::spawn_blocking(steam_integration::restart_steam)
+        .await
+        .map_err(|error| format!("Steam restart worker failed: {error}"))?
+}
+
+#[tauri::command]
+fn is_lua_game_mode_enabled() -> bool {
+    steam_integration::is_lua_game_mode_enabled()
+}
+
+#[tauri::command]
+async fn enable_lua_game_mode(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || steam_integration::enable_lua_game_mode(&app))
+        .await
+        .map_err(|error| format!("Lua-Game Mode worker failed: {error}"))?
+}
+
+#[tauri::command]
+async fn disable_lua_game_mode() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(steam_integration::disable_lua_game_mode)
+        .await
+        .map_err(|error| format!("Lua-Game Mode worker failed: {error}"))?
+}
+
+#[tauri::command]
+fn get_steam_environment(app: AppHandle) -> steam_integration::SteamEnvironmentInfo {
+    steam_integration::environment_info(&app)
+}
+
+#[tauri::command]
+fn open_folder(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        // For URLs, we use PowerShell to safely handle special characters like '&' without cmd's argument parsing issues.
+        let escaped_url = url.replace("'", "''");
+        std::process::Command::new("powershell")
+            .args(&[
+                "-NoProfile",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                &format!("Start-Process '{}'", escaped_url),
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+struct DriveInfo {
+    letter: String,
+    label: String,
+    free_bytes: u64,
+    total_bytes: u64,
+}
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetLogicalDrives() -> u32;
+    fn GetDriveTypeW(lpRootPathName: *const u16) -> u32;
+    fn GetDiskFreeSpaceExW(
+        lpDirectoryName: *const u16,
+        lpFreeBytesAvailableToCaller: *mut u64,
+        lpTotalNumberOfBytes: *mut u64,
+        lpTotalNumberOfFreeBytes: *mut u64,
+    ) -> i32;
+}
+
+#[tauri::command]
+fn list_system_drives() -> Vec<DriveInfo> {
+    let mut drives = Vec::new();
+    #[cfg(windows)]
+    {
+        const DRIVE_REMOVABLE: u32 = 2;
+        const DRIVE_FIXED: u32 = 3;
+
+        let mask = unsafe { GetLogicalDrives() };
+        for index in 0..26 {
+            if mask & (1u32 << index) == 0 {
+                continue;
+            }
+
+            let letter = (b'A' + index as u8) as char;
+            let root = format!("{}:\\", letter);
+            let root_wide: Vec<u16> = root.encode_utf16().chain(std::iter::once(0)).collect();
+            let drive_type = unsafe { GetDriveTypeW(root_wide.as_ptr()) };
+            if drive_type != DRIVE_FIXED && drive_type != DRIVE_REMOVABLE {
+                continue;
+            }
+
+            let mut free_available = 0u64;
+            let mut total = 0u64;
+            let mut total_free = 0u64;
+            let ok = unsafe {
+                GetDiskFreeSpaceExW(
+                    root_wide.as_ptr(),
+                    &mut free_available,
+                    &mut total,
+                    &mut total_free,
+                )
+            };
+
+            if ok != 0 && total > 0 {
+                drives.push(DriveInfo {
+                    letter: format!("{}:", letter),
+                    label: format!("Local Disk ({}:)", letter),
+                    free_bytes: free_available,
+                    total_bytes: total,
+                });
+            }
+        }
+    }
+    drives
+}
+
+#[tauri::command]
+async fn check_launcher_update(
+    app: AppHandle,
+) -> Result<Option<updater::LauncherUpdateInfo>, String> {
+    updater::check_update(&app).await
+}
+
+#[tauri::command]
+async fn apply_launcher_update(app: AppHandle) -> Result<(), String> {
+    updater::download_and_apply(&app).await
+}
+
+#[tauri::command]
+fn list_notifications(app: AppHandle) -> Result<Vec<notifications::NotificationRecord>, String> {
+    notifications::list(&app)
+}
+
+#[tauri::command]
+fn push_notification(
+    app: AppHandle,
+    notification: notifications::NewNotification,
+) -> Result<notifications::PushNotificationResult, String> {
+    notifications::push(&app, notification)
+}
+
+#[tauri::command]
+fn mark_notification_read(
+    app: AppHandle,
+    notification_id: String,
+) -> Result<Vec<notifications::NotificationRecord>, String> {
+    notifications::mark_read(&app, &notification_id)
+}
+
+#[tauri::command]
+fn mark_all_notifications_read(
+    app: AppHandle,
+) -> Result<Vec<notifications::NotificationRecord>, String> {
+    notifications::mark_all_read(&app)
+}
+
+#[tauri::command]
+fn clear_notifications(app: AppHandle) -> Result<Vec<notifications::NotificationRecord>, String> {
+    notifications::clear(&app)
+}
+
+#[tauri::command]
+fn open_notification_action(app: AppHandle, notification_id: String) -> Result<(), String> {
+    notifications::open_action(&app, &notification_id)
+}
+
+#[tauri::command]
+fn get_game_runtime_states(app: AppHandle) -> Result<Vec<platform::GameRuntimeState>, String> {
+    platform::get_runtime_states(&app)
+}
+
+#[tauri::command]
+fn get_game_platform_state(
+    app: AppHandle,
+    game_id: String,
+) -> Result<platform::GamePlatformState, String> {
+    platform::get_game_platform_state(&app, &game_id)
+}
+
+#[tauri::command]
+fn clear_chunk_cache(
+    state: State<'_, LauncherState>,
+    cache_path: String,
+) -> Result<storage::ClearCacheReport, String> {
+    if state.job_control.is_running() {
+        return Err("pause or finish the active download before clearing cache".to_string());
+    }
+    storage::clear_chunk_cache(PathBuf::from(cache_path).as_path())
+}
+
+#[tauri::command]
+async fn get_launcher_snapshot(app: AppHandle) -> Result<LauncherSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || job::snapshot(&app).map_err(|err| err.to_string()))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+fn get_launcher_settings(app: AppHandle) -> Result<platform::LauncherSettings, String> {
+    platform::get_settings(&app)
+}
+
+#[tauri::command]
+fn set_launcher_settings(
+    app: AppHandle,
+    settings: platform::LauncherSettings,
+) -> Result<platform::LauncherSettings, String> {
+    platform::set_settings(&app, settings)
+}
+
+#[tauri::command]
+fn get_cloud_save_status(
+    app: AppHandle,
+    game_id: String,
+) -> Result<cloud_save::CloudSaveStatus, String> {
+    cloud_save::get_status(&app, &game_id)
+}
+
+#[tauri::command]
+fn set_cloud_save_config(
+    app: AppHandle,
+    game_id: String,
+    enabled: bool,
+    save_roots: Vec<cloud_save::CloudSaveRoot>,
+    include: Vec<String>,
+    exclude: Vec<String>,
+) -> Result<cloud_save::CloudSaveStatus, String> {
+    discord_auth::require_authorized_session()?;
+    cloud_save::set_config(&app, &game_id, enabled, save_roots, include, exclude)
+}
+
+#[tauri::command]
+fn sync_cloud_save(
+    app: AppHandle,
+    game_id: String,
+    direction: Option<String>,
+) -> Result<cloud_save::CloudSaveStatus, String> {
+    discord_auth::require_authorized_session()?;
+    cloud_save::sync_manual(&app, &game_id, direction.as_deref())
+}
+
+#[tauri::command]
+fn resolve_cloud_save_conflict(
+    app: AppHandle,
+    game_id: String,
+    conflict_id: String,
+    resolution: String,
+) -> Result<cloud_save::CloudSaveStatus, String> {
+    discord_auth::require_authorized_session()?;
+    cloud_save::resolve_conflict(&app, &game_id, &conflict_id, &resolution)
+}
+
+#[tauri::command]
+fn restore_cloud_save_snapshot(
+    app: AppHandle,
+    game_id: String,
+    snapshot_id: String,
+) -> Result<cloud_save::CloudSaveStatus, String> {
+    discord_auth::require_authorized_session()?;
+    cloud_save::restore_snapshot(&app, &game_id, &snapshot_id)
+}
+
+#[tauri::command]
+async fn global_connect_google_drive(app: AppHandle) -> Result<(), String> {
+    discord_auth::require_authorized_session()?;
+    tauri::async_runtime::spawn_blocking(move || cloud_save::global_connect_google_drive(&app))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn global_disconnect_google_drive(app: AppHandle) -> Result<(), String> {
+    discord_auth::require_authorized_session()?;
+    tauri::async_runtime::spawn_blocking(move || cloud_save::global_disconnect_google_drive(&app))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn global_is_google_drive_connected(app: AppHandle) -> Result<bool, String> {
+    Ok(cloud_save::global_is_google_drive_connected(&app))
+}
+
+#[tauri::command]
+async fn connect_google_drive(
+    app: AppHandle,
+    game_id: String,
+) -> Result<cloud_save::CloudSaveStatus, String> {
+    discord_auth::require_authorized_session()?;
+    tauri::async_runtime::spawn_blocking(move || cloud_save::connect_google_drive(&app, &game_id))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn disconnect_google_drive(
+    app: AppHandle,
+    game_id: String,
+) -> Result<cloud_save::CloudSaveStatus, String> {
+    discord_auth::require_authorized_session()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        cloud_save::disconnect_google_drive(&app, &game_id)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn backup_save_game_to_google_drive(
+    app: AppHandle,
+    game_id: String,
+) -> Result<cloud_save::CloudSaveStatus, String> {
+    discord_auth::require_authorized_session()?;
+    tauri::async_runtime::spawn_blocking(move || cloud_save::backup_to_google_drive(&app, &game_id))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn restore_missing_save_files(
+    app: AppHandle,
+    game_id: String,
+) -> Result<cloud_save::CloudSaveStatus, String> {
+    discord_auth::require_authorized_session()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        cloud_save::restore_missing_from_google_drive(&app, &game_id)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn retry_pending_cloud_saves(
+    app: AppHandle,
+    game_id: Option<String>,
+) -> Result<Vec<cloud_save::CloudSaveStatus>, String> {
+    discord_auth::require_authorized_session()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        cloud_save::retry_pending_syncs(&app, game_id.as_deref())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+fn pin_cloud_save_snapshot(
+    app: AppHandle,
+    game_id: String,
+    snapshot_id: String,
+    pinned: bool,
+) -> Result<cloud_save::CloudSaveStatus, String> {
+    discord_auth::require_authorized_session()?;
+    cloud_save::pin_snapshot(&app, &game_id, &snapshot_id, pinned)
+}
+
+#[tauri::command]
+async fn export_cloud_save_snapshot(
+    app: AppHandle,
+    game_id: String,
+    snapshot_id: Option<String>,
+    target: String,
+) -> Result<cloud_save::CloudSaveStatus, String> {
+    discord_auth::require_authorized_session()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        cloud_save::export_snapshot(
+            &app,
+            &game_id,
+            snapshot_id.as_deref(),
+            std::path::Path::new(&target),
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn refresh_cloud_save_map(app: AppHandle) -> Result<cloud_save::MapUpdateReport, String> {
+    discord_auth::require_authorized_session()?;
+    tauri::async_runtime::spawn_blocking(move || cloud_save::refresh_save_map(&app))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+fn push_cloud_save_map(app: AppHandle, payload: String) -> Result<(), String> {
+    cloud_save::push_save_map_from_firestore(&app, &payload)
+}
+
+#[tauri::command]
+fn get_local_save_backups(
+    game_id: String,
+) -> Result<Vec<local_save_backup::SaveBackupSnapshot>, String> {
+    local_save_backup::list_snapshots(&game_id)
+}
+
+#[tauri::command]
+fn restore_local_save_backup(
+    app: AppHandle,
+    game_id: String,
+    snapshot_id: String,
+) -> Result<local_save_backup::RestoreTransaction, String> {
+    local_save_backup::restore_snapshot(&app, &game_id, &snapshot_id)
+}
+
+#[tauri::command]
+fn restore_and_relaunch(
+    app: AppHandle,
+    game_id: String,
+    snapshot_id: String,
+    install_path: String,
+    launch_executable: Option<String>,
+    launch_option_id: Option<String>,
+) -> Result<local_save_backup::RestoreAndRelaunchResult, String> {
+    discord_auth::require_authorized_session()?;
+    local_save_backup::restore_and_relaunch(
+        &app,
+        &game_id,
+        &snapshot_id,
+        PathBuf::from(install_path).as_path(),
+        launch_executable,
+        launch_option_id,
+    )
+}
+
+#[tauri::command]
+async fn plan_install_update(
+    app: AppHandle,
+    coordinator: State<'_, InstallPlanCoordinator>,
+    path: String,
+    target_version: Option<String>,
+    game_id: Option<String>,
+) -> Result<LauncherSnapshot, String> {
+    let key = format!(
+        "update:{}:{}",
+        game_id.as_deref().unwrap_or_default(),
+        path.to_lowercase(),
+    );
+    let token = coordinator.begin(key.clone());
+    let work_token = token.clone();
+    let result = match tauri::async_runtime::spawn_blocking(move || {
+        job::snapshot_for_install_cancellable(
+            &app,
+            PathBuf::from(path).as_path(),
+            target_version,
+            game_id,
+            Some(work_token.as_ref()),
+        )
+        .map_err(|err| err.to_string())
+    })
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => Err(error.to_string()),
+    };
+    coordinator.finish(&key, &token);
+    result
+}
+
+#[tauri::command]
+async fn plan_fresh_install(
+    app: AppHandle,
+    coordinator: State<'_, InstallPlanCoordinator>,
+    target_version: Option<String>,
+    game_id: Option<String>,
+) -> Result<LauncherSnapshot, String> {
+    let key = format!("fresh:{}", game_id.as_deref().unwrap_or_default());
+    let token = coordinator.begin(key.clone());
+    let work_token = token.clone();
+    let result = match tauri::async_runtime::spawn_blocking(move || {
+        job::snapshot_for_fresh_install_cancellable(
+            &app,
+            target_version,
+            game_id,
+            Some(work_token.as_ref()),
+        )
+        .map_err(|err| err.to_string())
+    })
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => Err(error.to_string()),
+    };
+    coordinator.finish(&key, &token);
+    result
+}
+
+#[tauri::command]
+async fn scan_install(path: String) -> Result<ScanReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        scanner::scan_install(PathBuf::from(path).as_path()).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+async fn read_job_journal(app: AppHandle) -> Result<Option<JobJournal>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        job::read_latest_journal(&app).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+async fn get_game_catalog(app: AppHandle) -> Result<GameCatalog, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        asset_pack::get_game_catalog(&app).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+async fn get_game_detail(
+    app: AppHandle,
+    game_id: String,
+    locale: Option<String>,
+) -> Result<GameDetail, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        asset_pack::get_game_detail(&app, &game_id, locale).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+async fn get_game_asset(
+    app: AppHandle,
+    game_id: String,
+    asset_id: String,
+) -> Result<AssetBlob, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        asset_pack::get_game_asset(&app, &game_id, &asset_id).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+async fn get_game_install_state(
+    app: AppHandle,
+    game_id: String,
+) -> Result<GameInstallState, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        job::game_install_state(&app, &game_id).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+async fn get_game_install_states(
+    app: AppHandle,
+    state: State<'_, LauncherState>,
+    game_ids: Vec<String>,
+) -> Result<Vec<GameInstallState>, String> {
+    let discovery_generation = install_discovery::completed_generation_for(&game_ids);
+    let confirmed_game_ids = game_ids.clone();
+    let scan_app = app.clone();
+    let states = tauri::async_runtime::spawn_blocking(move || {
+        job::game_install_states_quick(&scan_app, &game_ids).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())??;
+
+    if discovery_generation.is_some_and(|generation| {
+        install_discovery::activate_automatic_jobs(&confirmed_game_ids, generation).is_some()
+    }) {
+        job::start_post_discovery_scan(app, state.job_control.clone());
+    }
+
+    Ok(states)
+}
+
+#[tauri::command]
+async fn discover_game_installs(
+    app: AppHandle,
+    game_ids: Vec<String>,
+) -> Result<install_discovery::InstallDiscoveryReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        install_discovery::discover_game_installs(&app, game_ids)
+    })
+    .await
+    .map_err(|error| format!("Install discovery task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn register_library_root(
+    path: String,
+) -> Result<install_discovery::LibraryRecoveryIndex, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        install_discovery::register_library_root(PathBuf::from(path).as_path())
+    })
+    .await
+    .map_err(|error| format!("Library registration task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn forget_library_root(library_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        install_discovery::forget_library_root(&library_id)
+    })
+    .await
+    .map_err(|error| format!("Library removal task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn resolve_install_conflict(
+    app: AppHandle,
+    game_id: String,
+    install_path: String,
+) -> Result<install_discovery::DiscoveredInstall, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        install_discovery::resolve_install_conflict(
+            &app,
+            &game_id,
+            PathBuf::from(install_path).as_path(),
+        )
+    })
+    .await
+    .map_err(|error| format!("Install conflict task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn get_game_launch_config(
+    app: AppHandle,
+    game_id: String,
+    install_path: String,
+    launch_executable: Option<String>,
+) -> Result<ResolvedGameLaunchConfig, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        job::game_launch_config(
+            &app,
+            &game_id,
+            PathBuf::from(install_path).as_path(),
+            launch_executable,
+        )
+        .map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+fn launch_game(
+    app: AppHandle,
+    game_id: String,
+    install_path: String,
+    launch_executable: Option<String>,
+    launch_option_id: Option<String>,
+    skip_cloud_sync: Option<bool>,
+) -> Result<LaunchReport, String> {
+    discord_auth::require_authorized_session()?;
+    job::launch_game(
+        &app,
+        &game_id,
+        PathBuf::from(install_path).as_path(),
+        launch_executable,
+        launch_option_id,
+        skip_cloud_sync.unwrap_or(false),
+    )
+    .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn kill_game(_app: AppHandle, game_id: String) -> Result<(), String> {
+    job::kill_game(&game_id).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn is_process_running(executable: String) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        use std::process::Command;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let mut command = Command::new("tasklist");
+        command.creation_flags(CREATE_NO_WINDOW);
+        let output = command
+            .args([
+                "/FI",
+                &format!("IMAGENAME eq {}", executable),
+                "/FO",
+                "CSV",
+                "/NH",
+            ])
+            .output();
+
+        output
+            .ok()
+            .filter(|result| result.status.success())
+            .map(|result| {
+                let text = String::from_utf8_lossy(&result.stdout).to_ascii_lowercase();
+                text.contains(&executable.to_ascii_lowercase())
+            })
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
+#[tauri::command]
+fn kill_process_by_name(executable: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        use std::process::Command;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let mut command = Command::new("taskkill");
+        command.creation_flags(CREATE_NO_WINDOW);
+        command.args(["/F", "/IM", &executable]);
+
+        let status = command
+            .status()
+            .map_err(|e| format!("Failed to execute taskkill: {}", e))?;
+
+        if !status.success() {
+            return Err(format!("taskkill failed with status: {}", status));
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("Not supported on this OS".into())
+    }
+}
+
+#[tauri::command]
+async fn verify_install_integrity(
+    app: AppHandle,
+    game_id: String,
+    install_path: String,
+    target_version: Option<String>,
+) -> Result<VerifyInstallReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        job::verify_install_integrity(
+            Some(&app),
+            &game_id,
+            PathBuf::from(install_path).as_path(),
+            target_version,
+        )
+        .map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+fn uninstall_game(
+    app: AppHandle,
+    game_id: String,
+    install_path: String,
+) -> Result<UninstallReport, String> {
+    discord_auth::require_authorized_session()?;
+    job::uninstall_game(&app, &game_id, PathBuf::from(install_path).as_path())
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn start_update_job(
+    app: AppHandle,
+    state: State<'_, LauncherState>,
+    install_path: String,
+    target_version: Option<String>,
+    game_id: Option<String>,
+) -> Result<JobJournal, String> {
+    discord_auth::require_authorized_session()?;
+    state.job_control.reset();
+    job::spawn_update_job(
+        app,
+        state.job_control.clone(),
+        install_path,
+        target_version,
+        game_id,
+    )
+    .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn start_install_job(
+    app: AppHandle,
+    state: State<'_, LauncherState>,
+    game_id: Option<String>,
+    target_version: Option<String>,
+    install_path: Option<String>,
+    // Torrent-style selective download: only files in this list are downloaded.
+    // None / absent = download all files (existing behaviour).
+    file_filter: Option<Vec<String>>,
+) -> Result<JobJournal, String> {
+    // Backup Game is independent from Discord/social authentication. The
+    // broker owns its upstream access; installing a public catalog item must
+    // not be blocked by a Discord session check here.
+    state.job_control.reset();
+    job::spawn_install_job(
+        app,
+        state.job_control.clone(),
+        target_version,
+        install_path,
+        game_id,
+        file_filter,
+    )
+    .map_err(|err| err.to_string())
+}
+
+/// Returns the list of files in a game's manifest so the frontend can show a
+/// torrent-style file picker before starting the download.
+#[tauri::command]
+fn get_game_manifest_files(
+    app: AppHandle,
+    game_id: Option<String>,
+    target_version: Option<String>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let files = job::get_manifest_files(&app, game_id.as_deref(), target_version)
+        .map_err(|e| e.to_string())?;
+    Ok(files
+        .into_iter()
+        .map(|(path, size)| serde_json::json!({ "path": path, "size": size }))
+        .collect())
+}
+
+#[tauri::command]
+async fn preflight_backup_content(
+    app: AppHandle,
+    game_id: Option<String>,
+    target_version: Option<String>,
+) -> Result<job::BackupContentPreflight, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        job::preflight_backup_content(&app, game_id.as_deref(), target_version)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+fn start_repair_job(
+    app: AppHandle,
+    state: State<'_, LauncherState>,
+    game_id: String,
+    install_path: String,
+    target_version: Option<String>,
+    file_paths: Vec<String>,
+) -> Result<JobJournal, String> {
+    discord_auth::require_authorized_session()?;
+    state.job_control.reset();
+    job::spawn_repair_job(
+        app,
+        state.job_control.clone(),
+        &game_id,
+        install_path,
+        target_version,
+        file_paths,
+    )
+    .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn check_patch_available(game_id: String, version: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || job::check_patch_available(&game_id, &version))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+fn start_patch_job(
+    app: AppHandle,
+    state: State<'_, LauncherState>,
+    game_id: Option<String>,
+    install_path: String,
+    target_version: Option<String>,
+) -> Result<JobJournal, String> {
+    discord_auth::require_authorized_session()?;
+    state.job_control.reset();
+    job::spawn_patch_job(
+        app,
+        state.job_control.clone(),
+        install_path,
+        target_version,
+        game_id,
+    )
+    .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn pause_job(state: State<'_, LauncherState>) {
+    state.job_control.pause();
+}
+
+#[tauri::command]
+fn resume_job(app: AppHandle, state: State<'_, LauncherState>) -> Result<(), String> {
+    state.job_control.resume();
+    if !state.job_control.is_running() {
+        if let Ok(Some(journal)) = job::read_latest_journal(&app) {
+            match journal.kind.as_str() {
+                "install" => {
+                    job::resume_install_job(app, state.job_control.clone(), journal)
+                        .map_err(|e| e.to_string())?;
+                }
+                "update" => {
+                    job::resume_update_job(app, state.job_control.clone(), journal)
+                        .map_err(|e| e.to_string())?;
+                }
+                "repair" => {
+                    job::resume_repair_job(app, state.job_control.clone(), journal)
+                        .map_err(|e| e.to_string())?;
+                }
+                "patch" => {
+                    job::resume_patch_job(app, state.job_control.clone(), journal)
+                        .map_err(|e| e.to_string())?;
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_job(app: AppHandle, state: State<'_, LauncherState>) -> Result<(), String> {
+    state.job_control.cancel();
+    job::abort_and_clean_job(&app, None).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn abort_and_clean_job(
+    app: AppHandle,
+    state: State<'_, LauncherState>,
+    game_id: String,
+) -> Result<(), String> {
+    state.job_control.cancel();
+    job::abort_and_clean_job(&app, Some(&game_id)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn clear_job_journal(app: AppHandle) -> Result<(), String> {
+    job::clear_current_journal(&app).map_err(|e| e.to_string())
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ShortcutLaunchRequest {
+    game_id: String,
+    install_path: String,
+    launch_executable: Option<String>,
+}
+
+struct LauncherState {
+    job_control: Arc<JobControl>,
+}
+
+#[tauri::command]
+fn clear_launcher_config(app: tauri::AppHandle) -> Result<(), String> {
+    if let Ok(app_dir) = app.path().app_data_dir() {
+        if app_dir.exists() {
+            let _ = std::fs::remove_dir_all(&app_dir);
+            let _ = std::fs::create_dir_all(&app_dir);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn check_defender_exclusion(path: String) -> Result<bool, String> {
+    use std::path::Path;
+    Ok(defender_exclusion::is_likely_excluded(Path::new(&path)))
+}
+
+#[tauri::command]
+async fn add_defender_exclusion(path: String) -> Result<bool, String> {
+    use std::path::Path;
+    defender_exclusion::add_defender_exclusion(Path::new(&path)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_debug_logging_enabled(app: AppHandle, enabled: bool) -> Result<String, String> {
+    if enabled {
+        let app_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("Cannot get app dir: {}", e))?;
+        let log_path = app_dir.join("download-debug.log");
+        debug_log::init_debug_log(log_path.clone());
+        debug_log::debug_log("=== Debug logging enabled ===");
+        Ok(format!("Debug logging enabled. Log file: {:?}", log_path))
+    } else {
+        debug_log::init_debug_log(PathBuf::new()); // Empty path = disable
+        Ok("Debug logging disabled".to_string())
+    }
+}
+
+#[tauri::command]
+fn get_debug_log_path(app: AppHandle) -> Result<String, String> {
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Cannot get app dir: {}", e))?;
+    let log_path = app_dir.join("download-debug.log");
+    Ok(log_path.to_string_lossy().to_string())
+}
+
+pub fn run() {
+    // Ensure global HF_TOKEN is available in process environment
+    if std::env::var("HF_TOKEN").map(|v| v.trim().is_empty()).unwrap_or(true) {
+        if let Some(token) = secure_keys::get_default_embedded_hf_token() {
+            std::env::set_var("HF_TOKEN", token);
+        }
+    }
+
+    #[allow(unused_variables)]
+    let port: u16 = 14201;
+
+    let mut builder = tauri::Builder::default();
+
+    builder = builder
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_localhost::Builder::new(14201).build())
+        .manage(LauncherState {
+            job_control: Arc::new(JobControl::default()),
+        })
+        .manage(InstallPlanCoordinator::default())
+        .manage(asset_pack::AssetPackCache::default())
+        .manage(steamgriddb::SteamGridDbState::default())
+        .invoke_handler(tauri::generate_handler![
+            steamgriddb::lookup_steamgriddb_artwork,
+            lua_experience::lua_get_metadata,
+            lua_experience::lua_get_basic_metadata,
+            lua_experience::lua_get_cache_health,
+            lua_experience::lua_cache_image,
+            lua_experience_policy::lua_get_experience_settings,
+            lua_experience_policy::lua_save_experience_settings,
+            lua_experience_policy::lua_get_experience_health,
+            lua_task_queue::lua_list_tasks,
+            lua_task_queue::lua_enqueue_task,
+            lua_task_queue::lua_control_task,
+            lua_task_queue::lua_reorder_tasks,
+            lua_task_queue::lua_archive_finished_tasks,
+            lua_workshop::lua_get_workshop_settings,
+            lua_workshop::lua_save_workshop_settings,
+            lua_workshop::lua_get_workshop_health,
+            lua_workshop::lua_resolve_workshop_item,
+            lua_workshop::lua_resolve_authenticated_workshop_item,
+            lua_workshop::lua_verify_workshop_receipt,
+            lua_steam_auth::lua_get_steam_auth_status,
+            lua_steam_auth::lua_begin_steam_qr_login,
+            lua_steam_auth::lua_cancel_steam_qr_login,
+            lua_steam_auth::lua_disconnect_steam_workshop,
+            steam::check_steam_status,
+            steam::check_steam_update,
+            steam::remove_from_steam,
+            steam::force_restart_steam,
+            steam::add_to_steam,
+            steam::get_installed_steam_apps,
+            steam::fetch_steam_game_name,
+            steam::search_steam_store,
+            chat::load_chat_history,
+            chat::save_chat_message,
+            chat::delete_chat_message,
+            chat::edit_chat_message,
+            chat::clear_chat_history,
+            chat::download_from_huggingface,
+            chat::upload_chat_media,
+            chat::upload_chat_media_from_path,
+            chat::delete_chat_media,
+            chat::get_chat_media_base64,
+            chat::download_chat_media_to_disk,
+            chat::sync_to_huggingface,
+            chat::read_file_base64,
+            offline_cache::cache_remote_asset,
+            offline_cache::get_cached_asset,
+            get_disk_free_space,
+            get_file_size,
+            check_install_disk_space,
+            list_system_drives,
+            check_launcher_update,
+            apply_launcher_update,
+            list_notifications,
+            push_notification,
+            mark_notification_read,
+            mark_all_notifications_read,
+            clear_notifications,
+            open_notification_action,
+            get_game_runtime_states,
+            clear_chunk_cache,
+            get_launcher_snapshot,
+            get_game_platform_state,
+            achievement_watcher::get_achievement_state,
+            achievement_watcher::send_achievement_command,
+            game_session_state::get_game_session_state,
+            game_session_state::list_game_session_states,
+            game_session_state::get_overlay_metrics,
+            game_session_state::set_overlay_profile,
+            job::set_process_priority,
+            get_launcher_settings,
+            set_launcher_settings,
+            library_layout::get_launcher_library_layout,
+            library_layout::save_launcher_library_layout,
+            get_game_ost_repo_info,
+            get_cloud_save_status,
+            set_cloud_save_config,
+            sync_cloud_save,
+            resolve_cloud_save_conflict,
+            restore_cloud_save_snapshot,
+            connect_google_drive,
+            disconnect_google_drive,
+            global_connect_google_drive,
+            global_disconnect_google_drive,
+            global_is_google_drive_connected,
+            backup_save_game_to_google_drive,
+            restore_missing_save_files,
+            retry_pending_cloud_saves,
+            pin_cloud_save_snapshot,
+            export_cloud_save_snapshot,
+            refresh_cloud_save_map,
+            push_cloud_save_map,
+            get_local_save_backups,
+            restore_local_save_backup,
+            restore_and_relaunch,
+            plan_install_update,
+            plan_fresh_install,
+            scan_install,
+            read_job_journal,
+            get_game_catalog,
+            get_game_detail,
+            get_game_asset,
+            asset_cache::fetch_asset_cache,
+            asset_cache::clear_game_cache,
+            get_game_install_state,
+            get_game_install_states,
+            discover_game_installs,
+            register_library_root,
+            forget_library_root,
+            resolve_install_conflict,
+            get_game_launch_config,
+            launch_game,
+            kill_game,
+            verify_install_integrity,
+            uninstall_game,
+            start_update_job,
+            translations::get_available_translations,
+            translations::get_translation_status,
+            translations::check_game_installed,
+            translations::detect_game_path,
+            translations::install_translation,
+            translations::uninstall_translation,
+            translations::launch_translation_game,
+            bypass_fix::get_bypass_index,
+            bypass_fix::get_bypass_builds,
+            bypass_fix::download_bypass_fix,
+            bypass_fix::get_bypass_status,
+            bypass_fix::install_bypass_fix,
+            bypass_fix::install_lua_tools_fix,
+            bypass_fix::install_empress_fix,
+            bypass_fix::uninstall_bypass_fix,
+            lua_sources::sign_in_luatools,
+            lua_sources::get_luatools_auth_status,
+            lua_sources::sign_out_luatools,
+            lua_sources::sign_in_empress,
+            lua_sources::empress_auth_harvested,
+            lua_sources::get_empress_auth_status,
+            lua_sources::sign_out_empress,
+            start_install_job,
+            get_game_manifest_files,
+            preflight_backup_content,
+            start_repair_job,
+            check_patch_available,
+            start_patch_job,
+            pause_job,
+            resume_job,
+            cancel_job,
+            clear_job_journal,
+            abort_and_clean_job,
+            open_folder,
+            open_url,
+            is_process_running,
+            kill_process_by_name,
+            check_spacewar_installed,
+            install_spacewar,
+            get_discord_auth_status,
+            login_discord,
+            logout_discord,
+            is_steam_running,
+            open_steam,
+            restart_steam,
+            open_steam_big_picture,
+            get_steam_environment,
+            steam_api_proxy::get_steam_news,
+            steam_api_proxy::get_steam_app_metadata,
+            steam_api_proxy::get_steam_global_achievements,
+            steam_api_proxy::get_steam_store_detail,
+            steam_api_proxy::get_system_specs,
+            steam_api_proxy::get_games_by_publisher,
+            steam_api_proxy::scan_game_folder_for_extras,
+            is_lua_game_mode_enabled,
+            enable_lua_game_mode,
+            disable_lua_game_mode,
+            steam_integration::get_steam_game_install_dir,
+            steam_integration::get_steam_game_buildid,
+            steam_integration::scan_all_installed_buildids,
+            steam_integration::check_defender_realtime_status,
+            check_defender_exclusion,
+            add_defender_exclusion,
+            set_debug_logging_enabled,
+            get_debug_log_path,
+            denuvo::get_offline_activation_state,
+            denuvo::start_offline_activation,
+            denuvo::resume_offline_activation,
+            denuvo::cancel_offline_activation,
+            exit_app,
+            restart_launcher,
+            clear_launcher_config,
+            cloud_redirect::cloud_redirect_get_status,
+            cloud_redirect::cloud_redirect_run_stfixer,
+            cloud_redirect::cloud_redirect_get_provider_config,
+            cloud_redirect::cloud_redirect_save_provider_config,
+            cloud_redirect::cloud_redirect_connect_google,
+            cloud_redirect::cloud_redirect_get_update_lock_status,
+            cloud_redirect::cloud_redirect_set_update_lock,
+            cloud_redirect::cloud_redirect_fetch_cloud_specs,
+            // CloudRedirect V2 (new features)
+            cloud_redirect_v2::cloud_redirect_start_oauth,
+            cloud_redirect_v2::cloud_redirect_complete_oauth,
+            cloud_redirect_v2::cloud_redirect_poll_oauth_code,
+            cloud_redirect_v2::cloud_redirect_poll_oauth_error,
+            // CloudRedirect upstream 2.6.3 engine adapter
+            cloud_redirect_v2::cloud_redirect_engine_get_status,
+            cloud_redirect_v2::cloud_redirect_engine_get_steam_state,
+            cloud_redirect_v2::cloud_redirect_engine_close_steam,
+            cloud_redirect_v2::cloud_redirect_engine_install,
+            cloud_redirect_v2::cloud_redirect_engine_remove,
+            cloud_redirect_v2::cloud_redirect_engine_run_required_patches,
+            cloud_redirect_v2::cloud_redirect_engine_get_provider,
+            cloud_redirect_v2::cloud_redirect_engine_save_provider,
+            cloud_redirect_v2::cloud_redirect_engine_set_mode,
+            cloud_redirect_v2::cloud_redirect_engine_test_provider,
+            cloud_redirect_v2::cloud_redirect_engine_list_apps,
+            cloud_redirect_v2::cloud_redirect_engine_list_files,
+            cloud_redirect_v2::cloud_redirect_engine_sync_app,
+            cloud_redirect_v2::cloud_redirect_engine_sync_all,
+            cloud_redirect_v2::cloud_redirect_engine_delete_app,
+            cloud_redirect_v2::cloud_redirect_engine_get_manifest_pins,
+            cloud_redirect_v2::cloud_redirect_engine_save_manifest_pins,
+            cloud_redirect_v2::cloud_redirect_engine_create_backup,
+            cloud_redirect_v2::cloud_redirect_engine_list_backups,
+            cloud_redirect_v2::cloud_redirect_engine_restore_backup,
+            cloud_redirect_v2::cloud_redirect_engine_list_stats,
+            cloud_redirect_v2::cloud_redirect_engine_migrate,
+            cloud_redirect_v2::cloud_redirect_engine_gc_blobs,
+            cloud_redirect_v2::cloud_redirect_engine_publish_manifest,
+            cloud_redirect_v2::cloud_redirect_engine_prune_legacy,
+            cloud_redirect_v2::cloud_redirect_engine_run_cloud760,
+            cloud_redirect_v2::cloud_redirect_engine_diagnostics,
+            // Steamless — native DRM remover (Error 54 Fix)
+            steamless::steamless_apply,
+            steamless::steamless_restore,
+            steamless::steamless_status,
+            sff_packages::list_sff_feature_packages,
+            sff_packages::install_sff_feature_package,
+            game_tools::get_game_tools_catalog,
+            game_tools::get_game_tools_status,
+            game_tools::import_game_tools_files,
+            game_tools::get_game_tools_package_identity,
+            game_tools::pick_game_tools_install_dir,
+            game_tools::apply_game_tools_package,
+            game_tools::restore_latest_game_tools_package,
+            game_tools::get_game_tools_game_status,
+            game_tools::list_game_tools_executables,
+            game_tools::apply_game_tools_steamless,
+            game_tools::restore_game_tools_steamless,
+            home_wallpaper::pick_home_wallpaper,
+            home_wallpaper::get_home_wallpaper_asset,
+            managed_game_runtime::get_managed_gse_state,
+            managed_game_runtime::repair_managed_gse,
+            managed_game_runtime::restore_managed_gse_original,
+            managed_game_runtime::plan_managed_runtime,
+            managed_game_runtime::apply_managed_runtime,
+            managed_game_runtime::verify_managed_runtime,
+            managed_game_runtime::repair_managed_runtime,
+            managed_game_runtime::restore_managed_runtime,
+            lightning_integration::get_lightning_catalog,
+            lightning_integration::get_lightning_integration_status,
+            lightning_integration::apply_lightning_package,
+            lightning_integration::restore_latest_lightning_package,
+            lightning_integration::get_lightning_game_status,
+            lightning_integration::list_lightning_game_executables,
+            lightning_integration::apply_lightning_steamless,
+            lightning_integration::restore_lightning_steamless,
+            // Steam Lua Manifest Management
+            steam::check_steam_status,
+            steam::check_steam_update,
+            steam::add_to_steam,
+            steam::remove_from_steam,
+            steam::install_lua_from_zip,
+            // Depot Patch — Version Switcher
+            steam::list_depot_versions,
+            steam::run_depot_patch,
+            steam::list_installed_luas,
+            steam::list_available_manifests,
+            // Depot Downloader Direct Download System
+            depot_downloader::depot_downloader_get_catalog,
+            depot_downloader::depot_downloader_get_game_detail,
+            depot_downloader::depot_downloader_start_download,
+            depot_downloader::depot_downloader_pause_download,
+            depot_downloader::depot_downloader_resume_download,
+            depot_downloader::depot_downloader_cancel_download,
+            depot_downloader::depot_downloader_finalize_install,
+            depot_downloader::depot_downloader_resolve_game_id,
+            depot_downloader::depot_downloader_get_status,
+            depot_downloader::depot_downloader_get_install_state,
+            depot_downloader::depot_downloader_get_cached_manifests,
+            depot_downloader::depot_downloader_check_disk_space,
+            depot_downloader::depot_downloader_get_steam_depots,
+            depot_downloader::depot_downloader_resolve_depot_keys,
+            depot_downloader::depot_downloader_start_selective_download,
+            depot_downloader::depot_downloader_get_hubcap_status,
+            depot_downloader::depot_downloader_sync_hubcap,
+            depot_downloader::depot_downloader_search_games,
+            depot_archive::get_depot_steam_snapshot,
+            depot_archive::resolve_depot_package_build,
+            depot_archive::list_depot_archive_versions,
+            depot_archive::get_depot_archive_build,
+            depot_archive::cache_depot_archive_build,
+            depot_archive::prepare_depot_archive_candidate,
+            depot_archive::submit_depot_archive_candidate,
+            depot_archive::get_depot_archive_candidate_status,
+            depot_archive::get_depot_archive_outbox,
+            depot_archive::set_depot_archive_enabled,
+            // 0xoLemon Lua Shop — Depotdownloader catalog
+            shop_lua::lua_shop_get_catalog,
+            shop_lua::lua_shop_get_patchnotes_rss,
+            shop_lua::lua_shop_get_game_builds,
+            shop_lua::lua_shop_install_game,
+            lua_live::install_lua_game,
+            lua_live::install_lua_game_from_source,
+            lua_live::get_lua_game_states,
+            lua_live::get_lua_game_state,
+            lua_live::get_lua_game_manager_state,
+            lua_live::check_lua_file_drift,
+            lua_live::resolve_lua_drift,
+            lua_live::list_lua_variants,
+            lua_live::capture_lua_variant,
+            lua_live::restore_lua_variant,
+            lua_live::pin_lua_variant,
+            lua_live::export_lua_variant,
+            lua_live::resolve_lua_source,
+            lua_live::set_lua_game_channel,
+            lua_live::sync_lua_game,
+            lua_live::sync_lua_game_from_source,
+            lua_live::apply_lua_game_update,
+            lua_live::check_lua_game_update,
+            lua_live::check_all_lua_game_updates,
+            lua_live::sync_all_live_lua_games,
+            lua_live::resolve_legacy_lua_games,
+            lua_runtime_profiles::get_lua_runtime_settings,
+            lua_runtime_profiles::save_lua_runtime_settings,
+            lua_runtime_profiles::get_lua_runtime_component_health,
+            lua_runtime_profiles::scan_lua_runtime_target,
+            lua_runtime_profiles::approve_lua_runtime_target,
+            lua_runtime_profiles::revoke_lua_runtime_target_approval,
+            gse_uc_setup::get_gse_uc_resource_health,
+            gse_uc_setup::plan_gse_uc_setup,
+            gse_uc_setup::apply_gse_uc_setup,
+            gse_uc_setup::verify_gse_uc_setup,
+            gse_uc_setup::repair_gse_uc_setup,
+            gse_uc_setup::restore_gse_uc_setup,
+            gse_uc_setup::launch_migrate_gse,
+            gse_auto_setup::gse_auto_setup_load_config,
+            gse_auto_setup::gse_auto_setup_save_config,
+            gse_auto_setup::gse_auto_setup_run,
+            gse_auto_setup::gse_auto_setup_restore,
+            gse_auto_setup::gse_auto_setup_list_saves,
+            gse_auto_setup::gse_auto_setup_create_snapshot,
+            gse_auto_setup::gse_auto_setup_list_backups,
+            gse_auto_setup::gse_auto_setup_read_backup,
+            gse_auto_setup::gse_auto_setup_restore_save_backup,
+            gse_auto_setup::gse_auto_setup_drive_status,
+            gse_auto_setup::gse_auto_setup_connect_drive,
+            gse_auto_setup::gse_auto_setup_disconnect_drive,
+            gse_auto_setup::gse_auto_setup_backup_save_to_drive,
+            gse_auto_setup::gse_auto_setup_list_cloud_backups,
+            gse_auto_setup::gse_auto_setup_restore_cloud_backup,
+            gse_auto_setup::gse_auto_setup_open_folder,
+            gse_auto_setup::gse_auto_setup_launch_migrate,
+            gse_auto_setup::gse_auto_setup_open_config,
+            gse_auto_setup::gse_auto_setup_check_updates,
+            gse_auto_setup::gse_auto_setup_open_updates_folder,
+            gse_auto_setup::gse_auto_setup_clean_update_temp,
+            gse_auto_setup::gse_auto_setup_clear_component_update,
+            steam_launch_options::read_steam_launch_options,
+            steam_launch_options::stage_steam_launch_options,
+            steam_launch_options::apply_staged_steam_launch_options,
+            steam_launch_options::restore_steam_launch_options,
+            steam_launch_options::list_steam_launch_mods,
+            steam_launch_options::reapply_steam_launch_mods,
+            lua_sources::get_lua_source_settings,
+            lua_sources::save_hubcap_api_key,
+            lua_sources::save_ryuu_auth_key,
+            lua_sources::clear_ryuu_auth_key,
+            lua_sources::save_depotbox_api_key,
+            lua_sources::clear_depotbox_api_key,
+            lua_sources::clear_hubcap_api_key,
+            lua_sources::refresh_hubcap_key_state,
+            lua_sources::get_hubcap_app_contents,
+            lua_sources::get_hubcap_health,
+            lua_sources::get_hubcap_user_stats,
+            lua_sources::get_hubcap_depot_keys_summary,
+            lua_sources::get_hubcap_library,
+            lua_sources::search_hubcap_games,
+            lua_sources::get_hubcap_status_details,
+            lua_sources::get_hubcap_lua_section,
+            lua_sources::fetch_hubcap_workshop_manifest,
+            lua_sources::upload_hubcap_manifest,
+            lua_sources::save_manifesthub_api_key,
+            lua_sources::clear_manifesthub_api_key,
+            lua_sources::test_manifesthub_api_key,
+            lua_sources::set_lua_source_preferences,
+            lua_sources::scan_lua_sources,
+            lua_sources::search_lua_games,
+            lua_sources::probe_lua_source_availability,
+            lua_sources::get_lua_add_quota,
+            lua_sources::fetch_donor_steamid,
+            open_steam_tool::get_native_core_settings,
+            open_steam_tool::set_native_core_stats_api,
+            social::get_social_bootstrap,
+            social::search_social_users,
+            social::get_social_profile,
+            social::update_social_profile,
+            social::send_social_friend_request,
+            social::accept_social_friend_request,
+            social::cancel_social_friend_request,
+            social::decline_social_friend_request,
+            social::remove_social_friend,
+            social::block_social_user,
+            social::unblock_social_user,
+            social::update_social_presence,
+            social::get_social_leaderboard,
+            social::set_social_leaderboard_participation,
+            social::record_social_stats,
+            social::stage_social_cover,
+            social::read_social_cover_draft_preview,
+            social::commit_social_profile_draft,
+            social::discard_social_profile_draft,
+            social::retry_social_cover_publish,
+            social::migrate_legacy_social_cover,
+            social::get_social_cover_state,
+            social::read_social_cover_preview,
+            remote_web::get_remote_web_access_state,
+            remote_web::enable_remote_web_access,
+            remote_web::disable_remote_web_access,
+            remote_web::revoke_remote_web_access,
+            steam_vn_fix::get_steam_vn_fix_status,
+            steam_vn_fix::toggle_steam_vn_fix,
+            steam_vn_fix::get_steam_fix_status,
+            steam_vn_fix::toggle_steam_bypass,
+            steam_vn_fix::toggle_steam_warp,
+            steam_vn_fix::toggle_steam_dns,
+        ]);
+
+    builder
+        .setup(move |app| {
+            if let Some(steam_path) = steam::get_steam_path() {
+                let migration = steam_manifest_integrity::migrate_legacy_cache(
+                    &steam_path.join("config").join("depotcache"),
+                    &steam_path.join("depotcache"),
+                );
+                if migration.moved > 0 || migration.rejected > 0 || migration.failed > 0 {
+                    eprintln!(
+                        "Steam depotcache migration: moved={}, already_present={}, rejected={}, failed={}",
+                        migration.moved, migration.already_present,
+                        migration.rejected, migration.failed
+                    );
+                }
+            }
+            // Lua tasks have their own persisted queue; never attach them to Store jobs.
+            if let Err(error) = lua_task_queue::start_lua_task_worker(app.handle().clone()) {
+                eprintln!("Lua task recovery unavailable: {error}");
+            }
+            // Initialize debug logging early
+            let app_dir = app.path().app_data_dir()?;
+            let log_path = app_dir.join("download-debug.log");
+            debug_log::init_debug_log(log_path.clone());
+            debug_log::debug_log(&format!("=== 0xoLemon Launcher Started ==="));
+            debug_log::debug_log(&format!("Debug log path: {:?}", log_path));
+
+            // Bootstrap API keys into Windows Credential Manager on first launch.
+            // Subsequent launches read from CredManager directly (no binary parsing needed).
+            credential_store::bootstrap_keys_if_absent();
+
+            let main_url = {
+                #[cfg(debug_assertions)]
+                let url: tauri::Url = "http://localhost:1420".parse().unwrap();
+                #[cfg(not(debug_assertions))]
+                let url: tauri::Url = "http://localhost:14201".parse().unwrap();
+                tauri::WebviewUrl::External(url)
+            };
+
+            // Keep WebView2 startup hardware-vendor agnostic.
+            // Do not force vendor-specific Chromium/ANGLE flags here; let WebView2
+            // choose its default renderer for the active Windows graphics stack.
+            debug_log::debug_log("Building main window with default WebView2 renderer...");
+
+            let window_builder = tauri::WebviewWindowBuilder::new(app, "main", main_url)
+                .title("0xoLemon")
+                .inner_size(1200.0, 800.0)
+                .min_inner_size(1120.0, 720.0)
+                .center()
+                .resizable(true)
+                .fullscreen(false)
+                .decorations(false)
+                .transparent(true)
+                .visible(true);
+
+            window_builder.build()?;
+            debug_log::debug_log("Main window built successfully.");
+
+            // Check and update DLLs on startup if Lua-Game Mode is enabled
+            let hook_update_app = app.handle().clone();
+            std::thread::spawn(move || {
+                if let Err(e) = steam_integration::check_and_update_dlls(&hook_update_app) {
+                    eprintln!("Failed to check/update DLLs: {}", e);
+                }
+            });
+
+            // Keep the Render free tier backend awake
+
+            // Cover retries are native and durable, so they continue even when the
+            // social React view has never been opened in this launcher session.
+            social::start_cover_retry_worker(app.handle().clone());
+
+            asset_cache::perform_ttl_cleanup(app.handle());
+            let quit_i =
+                tauri::menu::MenuItem::with_id(app, "quit", "Quit 0xoLemon", true, None::<&str>)?;
+            let store_i =
+                tauri::menu::MenuItem::with_id(app, "store", "Store", true, None::<&str>)?;
+            let library_i =
+                tauri::menu::MenuItem::with_id(app, "library", "Library", true, None::<&str>)?;
+            let community_i =
+                tauri::menu::MenuItem::with_id(app, "community", "Community", true, None::<&str>)?;
+            let settings_i =
+                tauri::menu::MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+            let tray_menu = tauri::menu::Menu::with_items(
+                app,
+                &[
+                    &store_i,
+                    &library_i,
+                    &community_i,
+                    &tauri::menu::PredefinedMenuItem::separator(app)?,
+                    &settings_i,
+                    &tauri::menu::PredefinedMenuItem::separator(app)?,
+                    &quit_i,
+                ],
+            )?;
+
+            debug_log::debug_log("Creating tray icon...");
+            let _tray = tauri::tray::TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&tray_menu)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    id => {
+                        let tab = match id {
+                            "store" => "Home",
+                            "library" => "Library",
+                            "community" => "Community",
+                            "settings" => "Settings",
+                            _ => return,
+                        };
+                        if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.emit("navigate", tab);
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        }
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    // Left-click: show launcher (hide only if already focused + visible)
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(win) = app.get_webview_window("main") {
+                            let is_visible = win.is_visible().unwrap_or(false);
+                            let is_minimized = win.is_minimized().unwrap_or(false);
+                            let is_focused = win.is_focused().unwrap_or(false);
+
+                            if is_visible && !is_minimized && is_focused {
+                                // Already front and center — toggle off (hide to tray)
+                                let _ = win.hide();
+                            } else {
+                                // Hidden, minimized, or just in background — bring it up
+                                let _ = win.show();
+                                let _ = win.unminimize();
+                                let _ = win.set_focus();
+                            }
+                        }
+                    }
+                })
+                .build(app)?;
+            debug_log::debug_log("Tray icon created.");
+
+            if let Some(window) = app.get_webview_window("main") {
+                let window_clone = window.clone();
+                window.on_window_event(move |event| match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        if crate::local_save_backup::is_backup_in_progress() {
+                            // Backup running: notify frontend to show close-guard modal
+                            let _ = window_clone.emit(
+                                "launcher://close-requested-while-backup",
+                                serde_json::json!({}),
+                            );
+                            api.prevent_close();
+                        } else {
+                            // Normal behavior: hide to tray
+                            window_clone.hide().unwrap();
+                            api.prevent_close();
+                        }
+                    }
+                    _ => {}
+                });
+            }
+
+            let app_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(app_dir.join("journals"))?;
+            let recovered_transactions = managed_file_transaction::recover_pending(app.handle())
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            if recovered_transactions > 0 {
+                debug_log::debug_log(&format!(
+                    "Recovered {recovered_transactions} interrupted managed file transaction(s)."
+                ));
+            }
+            debug_log::debug_log("Calling platform::initialize...");
+            platform::initialize(app.handle())
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            debug_log::debug_log("platform::initialize complete.");
+            install_discovery::migrate_known_libraries(app.handle());
+            steam_integration::start_pending_worker(app.handle().clone());
+            lua_live::start_live_scheduler(app.handle().clone());
+            let job_control = app.state::<LauncherState>().job_control.clone();
+            job::start_pending_update_recovery(app.handle().clone(), job_control.clone());
+            remote_web::initialize(app.handle().clone(), job_control.clone())
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            job::start_auto_update_scheduler(app.handle().clone(), job_control);
+            cloud_save::start_google_drive_restore_monitor(app.handle().clone());
+            // Initialize overlay window: pass-through mouse events by default so the
+            // transparent overlay window never accidentally blocks game input.
+            if let Some(overlay) = app.get_webview_window("overlay") {
+                let _ = overlay.set_ignore_cursor_events(true);
+            }
+            let shortcut_request = parse_shortcut_launch_request();
+            // When the main launcher starts, migrate existing desktop shortcuts away
+            // from the legacy AppData bootstrap and point them at the game directory.
+            // Do not run this from a per-game bootstrap, otherwise an old bootstrap
+            // could copy itself into every registered game folder.
+            if shortcut_request.is_none() {
+                let _ = job::refresh_registered_game_shortcuts(app.handle());
+            }
+            if let Some(request) = shortcut_request {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(900));
+                    let auth = discord_auth::get_status(&handle);
+                    if auth.state != "authorized" {
+                        let _ = handle.emit(
+                            "launcher://shortcut-launch-error",
+                            "Discord authorization is required before launching a game.",
+                        );
+                        return;
+                    }
+                    let _ = handle.emit("launcher://shortcut-launch", request.clone());
+                    // A shortcut without --launch-executable represents a
+                    // multi-option game. The frontend must open the launch
+                    // picker instead of the backend silently choosing a default.
+                    if request.launch_executable.is_none() {
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(1800));
+                    if game_tags::game_has_tag(&request.game_id, "online") {
+                        if !steam_integration::is_spacewar_installed() {
+                            let _ = handle.emit("launcher://spacewar-required", request.clone());
+                            return;
+                        }
+                        if !steam_integration::is_steam_running() {
+                            let _ = handle
+                                .emit("launcher://steam-recommendation-required", request.clone());
+                            return;
+                        }
+                    }
+                    let install_path = PathBuf::from(&request.install_path);
+                    if let Err(err) = job::launch_game(
+                        &handle,
+                        &request.game_id,
+                        install_path.as_path(),
+                        request.launch_executable.clone(),
+                        None,
+                        false,
+                    ) {
+                        let _ = handle.emit("launcher://shortcut-launch-error", err.to_string());
+                    }
+                });
+            }
+            Ok(())
+        })
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_shortcut("Shift+F1")
+                .unwrap()
+                .with_handler(|app, shortcut, event| {
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        if shortcut.matches(
+                            tauri_plugin_global_shortcut::Modifiers::SHIFT,
+                            tauri_plugin_global_shortcut::Code::F1,
+                        ) {
+                            if let Some(window) = app.get_webview_window("overlay") {
+                                if window.is_visible().unwrap_or(false) {
+                                    // Hide overlay: let game receive all mouse input
+                                    let _ = window.set_ignore_cursor_events(true);
+                                    let _ = window.hide();
+                                } else if game_session_state::has_active_session() {
+                                    // Show overlay: re-assert topmost so game can't cover it,
+                                    // then enable mouse interaction on the overlay
+                                    let _ = window.set_always_on_top(true);
+                                    let _ = window.set_ignore_cursor_events(false);
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                        }
+                    }
+                })
+                .build(),
+        )
+        .run(tauri::generate_context!())
+        .expect("failed to run 007 First Light launcher");
+}
+
+fn parse_shortcut_launch_request() -> Option<ShortcutLaunchRequest> {
+    let args = std::env::args().collect::<Vec<_>>();
+
+    // First, check for deep link URL format (0xolemon://launch-game/...)
+    if let Some(url_arg) = args.iter().find(|arg| arg.starts_with("0xolemon://")) {
+        if let Some(path) = url_arg.strip_prefix("0xolemon://launch-game/") {
+            // Path is in format: game_id/install_path_b64[/launch_executable_b64]
+            let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+            if parts.len() >= 2 {
+                let game_id = parts[0].to_string();
+
+                // Decode base64 paths (URL safe)
+                use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+
+                let install_path = if let Ok(decoded) = URL_SAFE_NO_PAD.decode(parts[1]) {
+                    String::from_utf8(decoded).unwrap_or_default()
+                } else {
+                    String::new()
+                };
+
+                if !install_path.is_empty() {
+                    let launch_executable = if parts.len() >= 3 {
+                        if let Ok(decoded) = URL_SAFE_NO_PAD.decode(parts[2]) {
+                            Some(String::from_utf8(decoded).unwrap_or_default())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    return Some(ShortcutLaunchRequest {
+                        game_id,
+                        install_path,
+                        launch_executable,
+                    });
+                }
+            }
+        }
+    }
+
+    // Fallback to legacy CLI arguments format
+    let game_id = flag_value(&args, "--launch-game")?;
+    let install_path = flag_value(&args, "--install-path")?;
+    Some(ShortcutLaunchRequest {
+        game_id,
+        install_path,
+        launch_executable: flag_value(&args, "--launch-executable"),
+    })
+}
+
+fn flag_value(args: &[String], flag: &str) -> Option<String> {
+    args.windows(2)
+        .find(|pair| pair[0] == flag)
+        .map(|pair| pair[1].clone())
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn get_short_path(path: &std::path::Path) -> Option<String> {
+    use std::os::windows::ffi::OsStrExt;
+    let mut wide_path: Vec<u16> = path.as_os_str().encode_wide().collect();
+    wide_path.push(0);
+
+    let mut buffer: Vec<u16> = vec![0; winapi::shared::minwindef::MAX_PATH];
+    let len = unsafe {
+        winapi::um::fileapi::GetShortPathNameW(
+            wide_path.as_ptr(),
+            buffer.as_mut_ptr(),
+            buffer.len() as u32,
+        )
+    };
+
+    if len > 0 && (len as usize) < buffer.len() {
+        use std::os::windows::ffi::OsStringExt;
+        let short_path = std::ffi::OsString::from_wide(&buffer[..len as usize]);
+        Some(short_path.to_string_lossy().to_string())
+    } else {
+        None
+    }
+}

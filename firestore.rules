@@ -1,0 +1,82 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // ── config/ ───────────────────────────────────────────────────────────────
+    // gameCatalog, gameStats — public read; only admin writes.
+    // TODO: Replace with your real Firebase UID (find it in Firebase Console →
+    //       Authentication → Users → your account → UID column).
+    match /config/gameStats {
+      allow read: if true;
+      allow update: if true; // allow incrementing likes/downloads
+    }
+
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if isSignedIn() && request.auth.uid == "YOUR_ADMIN_UID_HERE";
+    }
+
+    // ── gameDetails/ ─────────────────────────────────────────────────────────
+    // Public read; admin-only write.
+    match /gameDetails/{gameId} {
+      allow read: if true;
+      allow write: if isSignedIn() && request.auth.uid == "YOUR_ADMIN_UID_HERE";
+    }
+
+    // ── chats/ ───────────────────────────────────────────────────────────────
+    // Any signed-in user can read messages.
+    // Any signed-in user can post a message (create only).
+    // Only the original sender can edit/delete their own message.
+    match /chats/{gameId}/messages/{messageId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.senderId is string
+        && request.resource.data.senderId.size() > 0
+        && request.resource.data.text is string;
+      allow update, delete: if isSignedIn()
+        && resource.data.senderId == request.auth.uid;
+    }
+
+    // ── chat_meta/ ───────────────────────────────────────────────────────────
+    // HF sync leader election — any signed-in client can coordinate.
+    match /chat_meta/{gameId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Legacy remote-control documents are retained for audit/migration only.
+    // Browser and launcher clients must use the authenticated Render API.
+    match /users/{userId}/{document=**} {
+      allow read, write: if false;
+    }
+
+    // Web sessions, legal acceptance, paired devices and remote jobs are
+    // backend-only. Firebase Admin bypasses rules after Discord authorization.
+    match /webSessions/{document=**} { allow read, write: if false; }
+    match /legalAcceptances/{document=**} { allow read, write: if false; }
+    match /launcherDevices/{document=**} { allow read, write: if false; }
+    match /remoteJobs/{document=**} { allow read, write: if false; }
+
+    // Social data is available only through the Render backend after Discord
+    // authorization. Firebase Admin bypasses rules; launcher clients do not.
+    match /socialUsers/{document=**} { allow read, write: if false; }
+    match /socialRelationships/{document=**} { allow read, write: if false; }
+    match /socialRelationshipOperations/{document=**} { allow read, write: if false; }
+    match /socialPresence/{document=**} { allow read, write: if false; }
+    match /socialStatsDaily/{document=**} { allow read, write: if false; }
+    match /socialStatsTotals/{document=**} { allow read, write: if false; }
+    match /socialStatEvents/{document=**} { allow read, write: if false; }
+    match /socialCoverQueue/{document=**} { allow read, write: if false; }
+    match /socialCoverCleanup/{document=**} { allow read, write: if false; }
+    match /socialSystem/{document=**} { allow read, write: if false; }
+  }
+}

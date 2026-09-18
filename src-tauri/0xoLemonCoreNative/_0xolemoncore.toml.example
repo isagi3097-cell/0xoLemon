@@ -1,0 +1,104 @@
+# 0xolemoncore.toml — 0xoLemonCore configuration
+# Place this file in your Steam installation directory (next to steam.exe).
+# Rename to 0xolemoncore.toml to activate. All sections are optional — missing
+# keys fall back to the defaults shown below.
+
+[log]
+# Log level: "debug", "info", "warn", "error"
+level = "debug"
+# Extra verbose logging in debug builds
+verbose = true
+
+[lua]
+# Extra directories to watch for .lua files (beyond config/stplug-in/)
+paths = []
+
+[manifest_fetch]
+# URL chain for depot manifest downloads, tried in order until one returns 200.
+# {gid} is replaced with the manifest GID at request time.
+# The first built-in provider needs a compatibility User-Agent; 0xoLemonCore adds it internally.
+urls = [
+    "https://manifest.opensteamtool.com/{gid}",
+    "https://manifest.steam.run/api/manifest/{gid}",
+    "http://gmrc.wudrm.com/manifest/{gid}",
+]
+# Max seconds to wait per provider before trying the next one
+timeout_sec = 12
+# Trusted host allowlist — responses from other hosts are rejected
+trusted_hosts = [
+    "manifest.opensteamtool.com",
+    "manifest.steam.run",
+    "gmrc.wudrm.com",
+]
+
+[hubcap]
+# Hubcap API Key for single-manifest downloads when launcher is closed.
+# If omitted or empty, 0xoLemonCore will automatically read and decrypt
+# the Hubcap API key saved by the launcher in %APPDATA%.
+api_key = ""
+auto_sync = true
+sync_interval_min = 30
+
+[pattern_fetch]
+# Custom mirror URL for per-build pattern TOMLs. {subdir} = steamclient or
+# steamui, {sha} = lowercase hex SHA-256 of the DLL. Leave empty to use
+# the default GitHub + jsDelivr + local cache chain.
+mirror = ""
+
+[stats]
+# Enable stats and achievement API
+enable_api = true
+
+[process_extension]
+# Inject an extension DLL into game processes at launch
+enabled = false
+# Path to 32-bit extension DLL
+x86 = ""
+# Path to 64-bit extension DLL
+x64 = ""
+
+[onlinefix]
+# Inject 0xoPayload.dll into online-fix game processes for EOS bridge
+inject_enabled = true
+
+[boot]
+# Optional blocking diagnostic popup with Steam build ID and steamclient SHA256
+# when compatibility metadata cannot load. Keep this false for normal use: the
+# same details are written to logs/status without interrupting Steam startup.
+diagnostic_popup = false
+
+[steamstub]
+# Automatically activate the SteamStub bypass route when launching a
+# Lua-tracked game that has SteamStub protection, is not owned, and
+# has no manual stub flag set. Set to false to disable automatic bypass
+# (manual flag override in the Lua pattern still works).
+auto_enabled = false
+# Strip the SteamStub DRM stub from a Lua-tracked game's exe on disk the moment
+# Steam reports the download finished, and again as a fallback when Play is
+# pressed. Runs the launcher-shipped Steamless.CLI.exe (no .NET needed beyond
+# what it bundles). The original is kept as <filename>.bak (re4.exe -> re4.exe.bak);
+# undo with steamlessRestore(appId).
+auto_steamless = false
+# Poll interval for the download-watcher, in seconds (clamped to 5..600).
+auto_steamless_interval_sec = 15
+[steamless]
+# Directory holding Steamless.CLI.exe and its unpacker plugins. Leave empty to
+# auto-resolve (next to 0xoCore.dll, then the launcher resource tree).
+component_dir = ""
+[struct_offsets]
+# Live Steam client-object field offsets used by the ticket / library /
+# remote-storage paths. These are resolved at startup; the values below are the
+# built-in defaults and only need to be set when a Steam client update moved a
+# field before a pattern update shipped. Each key is optional — omit it to keep
+# the default. Values accept decimal or 0x-hex.
+#
+# controller_in_top_manager : CSteamUIAppController* inside the object returned
+#                             by GetTopManager() (steamui). Structural validation
+#                             runs against the live top manager when possible.
+# csteam_app_owned_flag    : owned-flag dword inside a host-side CSteamApp.
+# remote_storage_app_id    : AppId dword inside the IClientRemoteStorage object.
+#
+# Leave this whole section commented/absent for normal use.
+# controller_in_top_manager = 0xAB8
+# csteam_app_owned_flag = 28
+# remote_storage_app_id = 0x38

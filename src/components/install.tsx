@@ -1,0 +1,651 @@
+import { useEffect, useState } from 'react'
+import { invoke } from '@tauri-apps/api/core'
+import { Check, CheckCircle2, ChevronDown, Download, FolderOpen, Gauge, HardDrive, Plus, X } from 'lucide-react'
+import { enUS as t } from '../i18n/en-US'
+import type { GameDetail, GameVersionInfo } from '../types'
+import { formatBytes } from '../lib/format'
+
+type VersionInfoInput = GameVersionInfo | string
+
+export function InstallBar({
+  installPath,
+  installTarget,
+  scanStatus,
+  installMode,
+  onBrowse,
+  onScan,
+}: {
+  installPath: string
+  installTarget: string
+  scanStatus: string
+  installMode: boolean
+  onBrowse: () => void
+  onScan: () => void
+}) {
+  const label = installMode ? 'Install target' : 'Installed folder'
+  const path = installMode ? installTarget : installPath || 'No installed folder selected'
+
+  return (
+    <section className={installMode ? 'install-bar install-mode' : 'install-bar'}>
+      <div className="install-path">
+        <FolderOpen size={18} />
+        <div>
+          <small>{label}</small>
+          <span>{path}</span>
+        </div>
+      </div>
+      <span className="scan-status">{scanStatus}</span>
+      {!installMode ? (
+        <>
+          <button type="button" onClick={onScan} disabled={!installPath}>
+            <Gauge size={16} />
+            Scan
+          </button>
+          <button type="button" onClick={onBrowse}>
+            <FolderOpen size={16} />
+            Browse
+          </button>
+        </>
+      ) : null}
+    </section>
+  )
+}
+
+function VersionTags({ tags }: { tags?: string[] }) {
+  if (!tags || !Array.isArray(tags) || tags.length === 0) return null
+  return (
+    <div className="version-tags" style={{ display: 'flex', gap: '6px', alignItems: 'center', marginLeft: 'auto', marginRight: '8px' }}>
+      {tags.map((tag) => {
+        if (typeof tag !== 'string') return null
+        let color = '#a3a3a3'
+        let label = tag
+        const lowerTag = tag.toLowerCase()
+
+        if (lowerTag.includes('clean')) {
+          color = '#ffffff'
+          label = 'clean file game'
+        } else if (lowerTag.includes('crack')) {
+          color = '#4ade80'
+          label = 'cracked'
+        } else if (lowerTag.includes('viet') || lowerTag.includes('việt')) {
+          color = '#fbbf24'
+          label = 'việt hóa'
+        } else if (lowerTag.includes('bypass')) {
+          color = '#ef4444'
+          label = 'bypass hypervisor'
+        }
+
+        return (
+          <div key={tag} style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px', fontSize: '11px', color: '#e5e5e5', border: '1px solid rgba(255,255,255,0.1)' }}>
+             <div className="tag-dot-wrapper">
+               <span className="tag-dot" style={{ backgroundColor: color }}></span>
+             </div>
+             {label}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+export function InstallOptionsDialog({
+  detail,
+  mode,
+  currentVersion,
+  selectedVersion,
+  availableVersions,
+  versionInfos,
+  downloadSize,
+  installRoot,
+  downloadingRoot,
+  canStart,
+  isStarting = false,
+  statusMessage,
+  onVersionChange,
+  onChangeInstallRoot,
+  onStart,
+  onClose,
+  onPickFiles,
+}: {
+  detail: GameDetail
+  mode: 'install' | 'version'
+  currentVersion: string
+  selectedVersion: string
+  availableVersions: string[]
+  versionInfos: VersionInfoInput[]
+  downloadSize: number
+  installRoot: string
+  downloadingRoot: string
+  canStart: boolean
+  isStarting?: boolean
+  statusMessage?: string
+  onVersionChange: (version: string) => void
+  onChangeInstallRoot: () => void
+  onStart: () => void
+  onClose: () => void
+  /** Optional: when set, a "Select files" button appears in the footer for torrent-style partial download */
+  onPickFiles?: () => void
+}) {
+  const [versionMenuOpen, setVersionMenuOpen] = useState(false)
+  const [diskCheck, setDiskCheck] = useState<{
+    has_space: boolean
+    free_space: number
+    required_space: number
+    reason: string | null
+  } | null>(null)
+  const [diskCheckPending, setDiskCheckPending] = useState(false)
+  const [isAllocating, setIsAllocating] = useState(false)
+  const [allocatingProgress, setAllocatingProgress] = useState(0)
+
+  useEffect(() => {
+    if (!isAllocating) return
+    const timer1 = window.setTimeout(() => setAllocatingProgress(55), 350)
+    const timer2 = window.setTimeout(() => setAllocatingProgress(88), 850)
+    const timer3 = window.setTimeout(() => setAllocatingProgress(100), 1250)
+    const timer4 = window.setTimeout(() => {
+      setIsAllocating(false)
+      onStart()
+    }, 1500)
+    return () => {
+      window.clearTimeout(timer1)
+      window.clearTimeout(timer2)
+      window.clearTimeout(timer3)
+      window.clearTimeout(timer4)
+    }
+  }, [isAllocating, onStart])
+
+  // Check disk space when dialog opens, game changes, or install path changes
+  useEffect(() => {
+    if (!installRoot) {
+      const resetTimer = window.setTimeout(() => {
+        setDiskCheck(null)
+        setDiskCheckPending(false)
+      }, 0)
+      return () => window.clearTimeout(resetTimer)
+    }
+
+    const bufferBytes = 2 * 1024 * 1024 * 1024  // 2GB
+    const requiredBytes = downloadSize + bufferBytes
+
+    let cancelled = false
+    const pendingTimer = window.setTimeout(() => {
+      if (!cancelled) setDiskCheckPending(true)
+    }, 0)
+
+    const timer = window.setTimeout(() => {
+      void invoke<{
+        has_space: boolean
+        free_space: number
+        required_space: number
+        reason: string | null
+      }>('check_install_disk_space', {
+        installPath: installRoot,
+        requiredSizeBytes: requiredBytes,
+      })
+        .then((result) => {
+          if (!cancelled) setDiskCheck(result)
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            setDiskCheck({
+              has_space: false,
+              free_space: 0,
+              required_space: requiredBytes,
+              reason: 'Failed to check disk space: ' + err,
+            })
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setDiskCheckPending(false)
+        })
+    }, 250)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(pendingTimer)
+      window.clearTimeout(timer)
+    }
+  }, [detail.gameId, installRoot, downloadSize])
+
+  const cleanVersionText = (value: string) => {
+    return value
+      .replace(/\s*-\s*Uploaded\s+\d{4}-\d{2}-\d{2}.*$/, '')
+      .replace(/\s*\(Build\b.*$/i, '')
+      .trim()
+  }
+
+  const extractBuildId = (value: string) => {
+    const matches = Array.from(value.matchAll(/\bBuild\s+([A-Za-z0-9._-]+)/gi))
+    return matches.length > 0 ? matches[matches.length - 1][1].trim() : ''
+  }
+
+  const isBuildOnlyLabel = (value: string) => /^build\s+[A-Za-z0-9._-]+$/i.test(value.trim())
+
+  const displayVersionLabel = (info: GameVersionInfo | undefined) => {
+    if (!info) return ''
+    const label = (info.label || '').trim()
+    if (label && !isBuildOnlyLabel(label)) return label
+    return cleanVersionText(info.version) || info.version
+  }
+
+  // versionInfos might be undefined or might contain legacy strings (e.g. from activeDetail).
+  // Keep the raw version for backend lookup, but render a clean user-facing label.
+  const normalizeVersion = (v: VersionInfoInput, fallbackLatest: boolean): GameVersionInfo => {
+    if (typeof v === 'string') {
+      const extractedBuildId = extractBuildId(v)
+      const cleanLabel = cleanVersionText(v)
+      return {
+        version: v,
+        label: cleanLabel,
+        buildId: extractedBuildId,
+        sizeBytes: downloadSize,
+        latest: fallbackLatest,
+      }
+    }
+
+    const version = typeof v.version === 'string' ? v.version : ''
+    const label = typeof v.label === 'string' ? v.label : version
+    const inferredBuild = extractBuildId(version)
+    const buildId =
+      inferredBuild ||
+      (typeof v.buildId === 'string' && v.buildId && v.buildId !== version
+        ? v.buildId
+        : '')
+    let cleanedLabel = cleanVersionText(label)
+    if (!cleanedLabel || isBuildOnlyLabel(cleanedLabel)) {
+      cleanedLabel = cleanVersionText(version)
+    }
+
+    return {
+      version,
+      label: cleanedLabel,
+      buildId,
+      sizeBytes: Number.isFinite(v.sizeBytes) && v.sizeBytes > 0 ? v.sizeBytes : downloadSize,
+      latest: typeof v.latest === 'boolean' ? v.latest : fallbackLatest,
+      tags: Array.isArray(v.tags) ? v.tags.filter((tag): tag is string => typeof tag === 'string') : undefined,
+    }
+  }
+
+  const safeVersionInfos = (versionInfos || []).map((v) => normalizeVersion(v, false))
+
+  const infos =
+    safeVersionInfos.length > 0
+      ? safeVersionInfos
+      : (availableVersions || []).map((version, _i, arr) => 
+          normalizeVersion(version, version === arr[arr.length - 1])
+        )
+  const selectedInfo = infos.find((info) => info.version === selectedVersion) ?? infos[0]
+
+  const isVersionChange = mode === 'version'
+  const selectedBuildId = selectedInfo?.buildId?.trim()
+  const selectedVersionLabel = displayVersionLabel(selectedInfo) || cleanVersionText(selectedVersion) || selectedVersion
+
+  if (isAllocating) {
+    return (
+      <div className="dialog-backdrop" role="presentation">
+        <section className="install-modal" role="dialog" aria-modal="true" style={{ maxWidth: 540 }}>
+          <div className="modal-handle" />
+          <header>
+            <h2>{t.install.title} - {detail.title}</h2>
+            <p>Creating local game cache & allocating disk space...</p>
+          </header>
+          <div className="install-modal-body">
+            <div className="steam-allocating-container" style={{ margin: 0 }}>
+              <div className="steam-allocating-header">
+                <div className="steam-allocating-icon">
+                  <HardDrive size={20} />
+                </div>
+                <div>
+                  <div className="steam-allocating-title">Allocating disk space for {detail.title}...</div>
+                  <div className="steam-allocating-subtitle">0xoLemon is preparing disk storage and directory structure</div>
+                </div>
+              </div>
+              <div className="steam-allocating-bar-track">
+                <div className="steam-allocating-fill" style={{ width: `${allocatingProgress}%` }} />
+              </div>
+              <div className="steam-allocating-meta-grid">
+                <div className="steam-allocating-meta-item">
+                  <small>Disk space required</small>
+                  <strong>{formatBytes(diskCheck?.required_space || downloadSize)}</strong>
+                </div>
+                <div className="steam-allocating-meta-item">
+                  <small>Disk space available</small>
+                  <strong>{formatBytes(diskCheck?.free_space || 0)}</strong>
+                </div>
+                <div className="steam-allocating-meta-item" style={{ gridColumn: '1 / -1' }}>
+                  <small>Install directory</small>
+                  <strong style={{ wordBreak: 'break-all', fontSize: 12 }}>{installRoot}</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+          <footer>
+            <button type="button" onClick={() => setIsAllocating(false)}>
+              {t.install.cancel}
+            </button>
+          </footer>
+        </section>
+      </div>
+    )
+  }
+
+  return (
+    <div className="dialog-backdrop" role="presentation">
+      <section className="install-modal" role="dialog" aria-modal="true" aria-labelledby="install-options-title">
+        <div className="modal-handle" />
+        <header>
+          <button type="button" onClick={onClose} aria-label="Close install options">
+            <X size={17} />
+          </button>
+          <h2 id="install-options-title">{isVersionChange ? 'Choose game version' : t.install.title}</h2>
+          <p>
+            {isVersionChange
+              ? 'Select any published version. Choosing an older version will downgrade the installed game.'
+              : t.install.subtitle}
+          </p>
+        </header>
+        <div className="install-modal-body">
+          <div className={versionMenuOpen ? 'version-dropdown open' : 'version-dropdown'}>
+            <small>{t.install.version}</small>
+            <button
+              className="version-dropdown-trigger"
+              type="button"
+              aria-haspopup="listbox"
+              aria-expanded={versionMenuOpen}
+              onClick={() => setVersionMenuOpen((open) => !open)}
+            >
+              <span>
+                <strong>{selectedVersionLabel}</strong>
+                {selectedBuildId ? (
+                  <small>Build {selectedBuildId}</small>
+                ) : selectedVersionLabel !== selectedVersion ? (
+                  <small>{selectedVersion}</small>
+                ) : null}
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <VersionTags tags={selectedInfo?.tags} />
+                {selectedInfo?.latest ? <em>{t.install.latest}</em> : null}
+              </div>
+              <ChevronDown size={17} />
+            </button>
+            {versionMenuOpen ? (
+              <div className="version-dropdown-menu" role="listbox" aria-label="Choose install version">
+                {infos.map((info, idx) => (
+                  <button
+                    key={`${info.version}-${idx}`}
+                    className={info.version === selectedVersion ? 'version-dropdown-option active' : 'version-dropdown-option'}
+                    type="button"
+                    role="option"
+                    aria-selected={info.version === selectedVersion}
+                    onClick={() => {
+                      onVersionChange(info.version)
+                      setVersionMenuOpen(false)
+                    }}
+                  >
+                    <CheckCircle2 size={17} />
+                    <span>
+                      <strong>{displayVersionLabel(info)}</strong>
+                      {info.buildId ? (
+                        <small>Build {info.buildId}</small>
+                      ) : info.label && info.label !== info.version ? (
+                        <small>{info.version}</small>
+                      ) : null}
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <VersionTags tags={info.tags} />
+                      {info.latest ? <em>{t.install.latest}</em> : null}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className="install-options-grid">
+            <div>
+              <small>{t.install.version}</small>
+              <strong>{selectedVersionLabel}{selectedBuildId ? ` (Build ${selectedBuildId})` : ''}</strong>
+            </div>
+            {isVersionChange ? (
+              <div>
+                <small>Currently installed</small>
+                <strong>{currentVersion}</strong>
+              </div>
+            ) : null}
+            <div>
+              <small>{t.install.downloadSize}</small>
+              <strong>{formatBytes(downloadSize)}</strong>
+            </div>
+            {diskCheck && (
+              <div>
+                <small>Available disk space</small>
+                <strong style={{ color: diskCheck.has_space ? '#4ade80' : '#ff4444' }}>
+                  {formatBytes(diskCheck.required_space)} required / {formatBytes(diskCheck.free_space)} available
+                </strong>
+              </div>
+            )}
+            <div>
+              <small>{t.install.resumeBehavior}</small>
+              <strong>{t.install.journalCache}</strong>
+            </div>
+            <div>
+              <small>Game</small>
+              <strong>{detail.title}</strong>
+            </div>
+            <div className="wide-option">
+              <small>{t.install.installFolder}</small>
+              <strong>{installRoot}</strong>
+              {!isVersionChange ? (
+                <button type="button" onClick={onChangeInstallRoot}>
+                  <FolderOpen size={16} />
+                  {t.install.change}
+                </button>
+              ) : null}
+            </div>
+            <div className="wide-option">
+              <small>{t.install.downloadingFolder}</small>
+              <strong>{downloadingRoot}</strong>
+            </div>
+          </div>
+          {/* Drive Usage Meter */}
+          {diskCheck && diskCheck.free_space > 0 && (
+            <div className="drive-usage-meter">
+              <div className="drive-usage-meter-labels">
+                <span>Disk space on target drive</span>
+                <strong>
+                  Need: {formatBytes(diskCheck.required_space)} / Free: {formatBytes(diskCheck.free_space)}
+                </strong>
+              </div>
+              <div className="drive-usage-meter-track">
+                <div
+                  className="drive-usage-segment-game"
+                  style={{
+                    width: `${Math.min(95, Math.max(5, (diskCheck.required_space / (diskCheck.required_space + diskCheck.free_space)) * 100))}%`,
+                  }}
+                />
+                <div className="drive-usage-segment-free" style={{ flex: 1 }} />
+              </div>
+            </div>
+          )}
+          {/* Disk space warning */}
+          {diskCheck && !diskCheck.has_space && (
+            <div className="install-modal-status" role="alert" style={{
+              color: '#ff4444',
+              backgroundColor: 'rgba(255, 68, 68, 0.1)',
+              padding: '12px',
+              borderRadius: '8px',
+              marginTop: '16px',
+              border: '1px solid rgba(255, 68, 68, 0.3)'
+            }}>
+              ⚠️ {diskCheck.reason}
+            </div>
+          )}
+          {statusMessage ? (
+            <div className="install-modal-status" role="status" aria-live="polite">
+              {statusMessage}
+            </div>
+          ) : null}
+        </div>
+        <footer>
+          <button type="button" onClick={onClose}>
+            {t.install.cancel}
+          </button>
+          {onPickFiles && mode === 'install' && (
+            <button type="button" className="secondary-control" onClick={onPickFiles} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              Select files
+            </button>
+          )}
+          <button className="primary-control" type="button" onClick={() => { setIsAllocating(true); setAllocatingProgress(15); }} disabled={!canStart || isStarting || diskCheckPending || (diskCheck ? !diskCheck.has_space : false)}>
+            {isStarting ? (
+              <>
+                <svg className="btn-spinner" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <circle cx="12" cy="12" r="9" strokeDasharray="40 20" />
+                </svg>
+                Starting…
+              </>
+            ) : diskCheckPending ? (
+              <>
+                <svg className="btn-spinner" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <circle cx="12" cy="12" r="9" strokeDasharray="40 20" />
+                </svg>
+                Checking disk space…
+              </>
+            ) : (diskCheck && !diskCheck.has_space) ? (
+              <>
+                <X size={17} />
+                Insufficient disk space
+              </>
+            ) : (
+              <>
+                <Download size={17} />
+                {isVersionChange
+                  ? canStart
+                    ? 'Apply selected version'
+                    : 'Current version selected'
+                  : t.install.startDownload}
+              </>
+            )}
+          </button>
+        </footer>
+      </section>
+    </div>
+  )
+}
+
+export function DriveLibraryPickerModal({
+  libraries,
+  gameName,
+  currentRoot,
+  onSelect,
+  onAddDrive,
+  onClose,
+}: {
+  libraries: string[]
+  gameName: string
+  currentRoot: string
+  onSelect: (driveLetter: string) => void
+  onAddDrive: () => void
+  onClose: () => void
+}) {
+  type DriveInfo = { letter: string; label: string; free_bytes: number; total_bytes: number }
+  const [driveInfos, setDriveInfos] = useState<Record<string, DriveInfo>>({})
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    void invoke<DriveInfo[]>('list_system_drives')
+      .then((drives) => {
+        const map: Record<string, DriveInfo> = {}
+        // Normalize: backend returns "E:", but libraries might be "E:\" or "E:"
+        for (const d of drives) {
+          map[d.letter.toUpperCase()] = d
+          map[d.letter.toUpperCase() + '\\'] = d  // Also map "E:\" variant
+        }
+        setDriveInfos(map)
+        setLoading(false)
+      })
+      .catch(() => {
+        setLoading(false)
+      })
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="dialog-backdrop" role="presentation">
+        <section className="drive-picker-modal" role="dialog" aria-modal="true">
+          <header>
+            <h2>Loading...</h2>
+            <button type="button" onClick={onClose}><X size={17} /></button>
+          </header>
+        </section>
+      </div>
+    )
+  }
+
+  return (
+    <div className="dialog-backdrop" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <section className="drive-picker-modal" role="dialog" aria-modal="true" aria-label="Choose install library">
+        <header>
+          <h2>Choose Install Location</h2>
+          <button type="button" onClick={onClose} aria-label="Close"><X size={17} /></button>
+        </header>
+        <p className="drive-picker-hint">
+          Game will be installed to: <code>Drive:\0xoLemon store\common\{gameName}</code>
+        </p>
+        <div className="drive-list">
+          {libraries.map((lib) => {
+            const info = driveInfos[lib.toUpperCase()]
+            const isSelected = currentRoot.toUpperCase().startsWith(lib.toUpperCase())
+            const freeGB = info ? (info.free_bytes / 1024 / 1024 / 1024).toFixed(1) : null
+            const totalGB = info ? (info.total_bytes / 1024 / 1024 / 1024).toFixed(0) : null
+            const usedPct = info ? Math.round(((info.total_bytes - info.free_bytes) / info.total_bytes) * 100) : 0
+
+            return (
+              <button
+                key={lib}
+                className={`drive-entry${isSelected ? ' selected' : ''}`}
+                type="button"
+                onClick={() => onSelect(lib)}
+              >
+                <div className="drive-icon">
+                  <HardDrive size={28} />
+                </div>
+                <div className="drive-details">
+                  <div className="drive-label">
+                    <strong>{lib}</strong>
+                    {info ? <span>{info.label}</span> : null}
+                  </div>
+                  {info ? (
+                    <>
+                      <div className="drive-space-bar">
+                        <div className="drive-space-fill" style={{ width: `${usedPct}%` }} />
+                      </div>
+                      <div className="drive-space-text">
+                        {freeGB} GB free of {totalGB} GB
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="drive-space-bar">
+                        <div className="drive-space-fill" style={{ width: '0%' }} />
+                      </div>
+                      <div className="drive-space-text muted">—</div>
+                    </>
+                  )}
+                  <div className="drive-path-preview">
+                    {lib}\0xoLemon store\common\{gameName}
+                  </div>
+                </div>
+                {isSelected && <div className="drive-check"><Check size={16} /></div>}
+              </button>
+            )
+          })}
+        </div>
+        <footer>
+          <button type="button" className="add-drive-btn" onClick={onAddDrive}>
+            <Plus size={15} /> Add Drive
+          </button>
+        </footer>
+      </section>
+    </div>
+  )
+}

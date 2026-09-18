@@ -1,0 +1,316 @@
+use std::env;
+use std::path::PathBuf;
+
+use first_light_launcher::builder::{
+    build_depot, validate_depot_output, verify_remote_chunk, BuildDepotInput, BuildVersionInput,
+    DepotEncryptionConfig, PublishTarget,
+};
+use first_light_launcher::manifest::LaunchOption;
+
+/// Collect all values for a repeatable flag, e.g. `--skip-file-pattern foo --skip-file-pattern bar`.
+fn take_all_args(args: &[String], name: &str) -> Vec<String> {
+    args.windows(2)
+        .filter(|pair| pair[0] == name)
+        .map(|pair| pair[1].clone())
+        .collect()
+}
+
+fn main() {
+    if let Err(err) = run() {
+        eprintln!("depot_builder error: {err}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), String> {
+    let args = env::args().skip(1).collect::<Vec<_>>();
+    match args.first().map(String::as_str) {
+        Some("build-pair") => build_pair(&args),
+        Some("build-version") => build_version(&args),
+        Some("validate-output") => validate_output(&args),
+        Some("verify-remote-chunk") => verify_chunk(&args),
+        _ => {
+            print_usage();
+            Err(
+                "expected build-pair, build-version, validate-output, or verify-remote-chunk command"
+                    .to_string(),
+            )
+        }
+    }
+}
+
+fn verify_chunk(args: &[String]) -> Result<(), String> {
+    let output = PathBuf::from(take_arg(args, "--out")?);
+    let remote_base = take_arg(args, "--remote-base")?;
+    let version = take_arg(args, "--version")?;
+    let file = take_arg(args, "--file")?;
+    let chunk_index = take_arg(args, "--chunk-index")?
+        .parse::<usize>()
+        .map_err(|_| "--chunk-index must be a non-negative integer".to_string())?;
+    let report = verify_remote_chunk(&output, &remote_base, &version, &file, chunk_index)
+        .map_err(|error| error.to_string())?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+fn validate_output(args: &[String]) -> Result<(), String> {
+    let output = PathBuf::from(take_arg(args, "--out")?);
+    let report = validate_depot_output(&output).map_err(|error| error.to_string())?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+fn encryption_config(args: &[String]) -> DepotEncryptionConfig {
+    let disabled = has_flag(args, "--no-encrypt-packs") || has_flag(args, "--plain-packs");
+    let explicitly_enabled = has_flag(args, "--encrypt-packs");
+    let config = DepotEncryptionConfig {
+        enabled: explicitly_enabled || !disabled,
+        key_material: take_arg(args, "--encryption-key")
+            .ok()
+            .or_else(|| take_arg(args, "--depot-key").ok()),
+        key_id: take_arg(args, "--encryption-key-id").ok(),
+    };
+    eprintln!(
+        "[DEPOT] transport encryption: {}",
+        if config.enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+    config
+}
+
+fn pack_target_size(args: &[String]) -> u64 {
+    let mb = take_arg(args, "--pack-target-mb")
+        .or_else(|_| take_arg(args, "--pack-size-mb"))
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(256);
+    let mb = mb.clamp(4, 4096);
+    mb * 1024 * 1024
+}
+
+fn pack_id_prefix(args: &[String]) -> String {
+    take_arg(args, "--pack-id-prefix")
+        .or_else(|_| take_arg(args, "--pack-prefix"))
+        .unwrap_or_else(|_| "pack-".to_string())
+}
+
+fn pack_start_index(args: &[String]) -> Option<usize> {
+    take_arg(args, "--pack-start-index")
+        .or_else(|_| take_arg(args, "--pack-start"))
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+}
+
+fn depot_format_version(args: &[String]) -> u32 {
+    take_arg(args, "--format-version")
+        .ok()
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .unwrap_or(1)
+}
+
+/// Parse --launch-options-json argument which is a JSON array like:
+/// [{"name":"Vanilla","executable":"game.exe","arguments":""},{"name":"Modded","executable":"modded.exe","arguments":""}]
+fn parse_launch_options(args: &[String]) -> Vec<LaunchOption> {
+    match take_arg(args, "--launch-options-json") {
+        Ok(json_str) => serde_json::from_str::<Vec<LaunchOption>>(&json_str).unwrap_or_else(|e| {
+            eprintln!("[DEPOT] Warning: failed to parse --launch-options-json: {e}");
+            vec![]
+        }),
+        Err(_) => vec![],
+    }
+}
+
+fn build_pair(args: &[String]) -> Result<(), String> {
+    let old_input = take_arg(&args, "--old-input")?;
+    let old_version = take_arg(&args, "--old-version").unwrap_or_else(|_| "v1.0".to_string());
+    let new_input = take_arg(&args, "--new-input")?;
+    let new_version = take_arg(&args, "--new-version").unwrap_or_else(|_| "v1.1".to_string());
+    let output = take_arg(&args, "--out")?;
+    let game_id = take_arg(&args, "--game-id").unwrap_or_else(|_| "007-first-light".to_string());
+    let upload_repo = take_arg(&args, "--upload-repo").ok();
+    let repo_type = take_arg(&args, "--repo-type").unwrap_or_else(|_| "dataset".to_string());
+    let repo_prefix = take_arg(&args, "--repo-prefix").unwrap_or_else(|_| game_id.clone());
+    let keep_local_packs = has_flag(&args, "--keep-local-packs");
+    let extend_existing = has_flag(&args, "--extend-existing");
+    let launch_executable = take_arg(&args, "--launch-executable").ok();
+    let launch_options = parse_launch_options(&args);
+    let delete_source_after_pack = has_flag(&args, "--delete-source-after-pack");
+    let upload_packs_incrementally = has_flag(&args, "--upload-packs-incrementally");
+    let skip_file_patterns = take_all_args(&args, "--skip-file-pattern");
+    let preserve_patterns = take_all_args(&args, "--preserve-pattern");
+    let dependencies = take_all_args(&args, "--dependency");
+
+    if delete_source_after_pack {
+        eprintln!("[DEPOT] WARNING: --delete-source-after-pack is enabled. Source files will be deleted as they are packed!");
+    }
+    if upload_packs_incrementally {
+        eprintln!("[DEPOT] INCREMENTAL MODE: Each pack will be uploaded and deleted immediately after creation to save disk space.");
+        if upload_repo.is_none() {
+            return Err(
+                "--upload-packs-incrementally requires --upload-repo to be set".to_string(),
+            );
+        }
+    }
+    if !skip_file_patterns.is_empty() {
+        eprintln!(
+            "[DEPOT] skip-file-pattern(s): {}",
+            skip_file_patterns.join(", ")
+        );
+    }
+
+    let report = build_depot(BuildDepotInput {
+        game_id: game_id.clone(),
+        latest_version: new_version.clone(),
+        output_dir: PathBuf::from(output),
+        versions: vec![
+            BuildVersionInput {
+                version: old_version,
+                root: PathBuf::from(old_input),
+                launch_executable: launch_executable.clone(),
+                launch_options: launch_options.clone(),
+                dependencies: if dependencies.is_empty() {
+                    None
+                } else {
+                    Some(dependencies.clone())
+                },
+            },
+            BuildVersionInput {
+                version: new_version,
+                root: PathBuf::from(new_input),
+                launch_executable,
+                launch_options,
+                dependencies: if dependencies.is_empty() {
+                    None
+                } else {
+                    Some(dependencies)
+                },
+            },
+        ],
+        publish: upload_repo.map(|repo_id| PublishTarget {
+            repo_id,
+            repo_type,
+            repo_prefix,
+            delete_local_packs: !keep_local_packs,
+        }),
+        extend_existing,
+        encryption: encryption_config(args),
+        pack_target_size: pack_target_size(args),
+        pack_id_prefix: pack_id_prefix(args),
+        start_pack_index: pack_start_index(args),
+        format_version: depot_format_version(args),
+        delete_source_after_pack,
+        upload_packs_incrementally,
+        skip_file_patterns,
+        preserve_patterns,
+    })
+    .map_err(|err| err.to_string())?;
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report).map_err(|err| err.to_string())?
+    );
+    Ok(())
+}
+
+fn build_version(args: &[String]) -> Result<(), String> {
+    let input = take_arg(&args, "--input")?;
+    let version = take_arg(&args, "--version")?;
+    let output = take_arg(&args, "--out")?;
+    let game_id = take_arg(&args, "--game-id")?;
+    let upload_repo = take_arg(&args, "--upload-repo").ok();
+    let repo_type = take_arg(&args, "--repo-type").unwrap_or_else(|_| "dataset".to_string());
+    let repo_prefix = take_arg(&args, "--repo-prefix").unwrap_or_else(|_| game_id.clone());
+    let keep_local_packs = has_flag(&args, "--keep-local-packs");
+    let extend_existing = has_flag(&args, "--extend-existing");
+    let launch_executable = take_arg(&args, "--launch-executable").ok();
+    let launch_options = parse_launch_options(&args);
+    let delete_source_after_pack = has_flag(&args, "--delete-source-after-pack");
+    let upload_packs_incrementally = has_flag(&args, "--upload-packs-incrementally");
+    let skip_file_patterns = take_all_args(&args, "--skip-file-pattern");
+    let preserve_patterns = take_all_args(&args, "--preserve-pattern");
+    let dependencies = take_all_args(&args, "--dependency");
+
+    if delete_source_after_pack {
+        eprintln!("[DEPOT] WARNING: --delete-source-after-pack is enabled. Source files will be deleted as they are packed!");
+    }
+    if upload_packs_incrementally {
+        eprintln!("[DEPOT] INCREMENTAL MODE: Each pack will be uploaded and deleted immediately after creation to save disk space.");
+        if upload_repo.is_none() {
+            return Err(
+                "--upload-packs-incrementally requires --upload-repo to be set".to_string(),
+            );
+        }
+    }
+    if !skip_file_patterns.is_empty() {
+        eprintln!(
+            "[DEPOT] skip-file-pattern(s): {}",
+            skip_file_patterns.join(", ")
+        );
+    }
+
+    let report = build_depot(BuildDepotInput {
+        game_id: game_id.clone(),
+        latest_version: version.clone(),
+        output_dir: PathBuf::from(output),
+        versions: vec![BuildVersionInput {
+            version,
+            root: PathBuf::from(input),
+            launch_executable,
+            launch_options,
+            dependencies: if dependencies.is_empty() {
+                None
+            } else {
+                Some(dependencies)
+            },
+        }],
+        publish: upload_repo.map(|repo_id| PublishTarget {
+            repo_id,
+            repo_type,
+            repo_prefix,
+            delete_local_packs: !keep_local_packs,
+        }),
+        extend_existing,
+        encryption: encryption_config(args),
+        pack_target_size: pack_target_size(args),
+        pack_id_prefix: pack_id_prefix(args),
+        start_pack_index: pack_start_index(args),
+        format_version: depot_format_version(args),
+        delete_source_after_pack,
+        upload_packs_incrementally,
+        skip_file_patterns,
+        preserve_patterns,
+    })
+    .map_err(|err| err.to_string())?;
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report).map_err(|err| err.to_string())?
+    );
+    Ok(())
+}
+
+fn has_flag(args: &[String], name: &str) -> bool {
+    args.iter().any(|arg| arg == name)
+}
+
+fn take_arg(args: &[String], name: &str) -> Result<String, String> {
+    args.windows(2)
+        .find(|pair| pair[0] == name)
+        .map(|pair| pair[1].clone())
+        .ok_or_else(|| format!("missing {name}"))
+}
+
+fn print_usage() {
+    eprintln!(
+        "usage:\n  depot_builder validate-output --out <depot-metadata-root>\n  depot_builder verify-remote-chunk --out <depot-metadata-root> --remote-base <resolve-url> --version <version> --file <relative-path> --chunk-index <index>\n  depot_builder build-pair --old-input <path> --new-input <path> --out <path> [--old-version v1.0] [--new-version v1.1] [--game-id 007-first-light] [--format-version 1|2] [--launch-executable <relative-exe>] [--upload-repo owner/repo --repo-type dataset --repo-prefix 007-first-light] [--keep-local-packs] [--extend-existing] [--pack-target-mb 128] [--pack-id-prefix pack-] [--pack-start-index 0] [--encrypt-packs|--encryption-key <key>|--no-encrypt-packs] [--skip-file-pattern <glob>] ...\n  depot_builder build-version --input <path> --version <version> --out <path> --game-id <game-id> [--format-version 1|2] [--launch-executable <relative-exe>] [--upload-repo owner/repo --repo-type dataset --repo-prefix <prefix>] [--keep-local-packs] [--extend-existing] [--pack-target-mb 128] [--pack-id-prefix pack-] [--pack-start-index 0] [--encrypt-packs|--encryption-key <key>|--no-encrypt-packs] [--skip-file-pattern <glob>] ...\n\n  --skip-file-pattern  Repeatable. Files whose depot-relative path matches the glob are NOT\n                       re-chunked; their entry is inherited verbatim from the latest existing\n                       manifest. Use for large opaque archives (e.g. Runtime/chunk0.rpkg) that\n                       are internally repacked every release. Supports * (within segment) and\n                       ** (across segments). Example:\n                         --skip-file-pattern 'Runtime/chunk0.rpkg' --skip-file-pattern 'Runtime/chunk1.rpkg'"
+    );
+}

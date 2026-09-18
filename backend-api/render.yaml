@@ -1,0 +1,90 @@
+services:
+  - type: web
+    name: 0xoLemon-Launcher
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: ACTIVATION_ENCRYPTION_KEY
+        sync: false
+      - key: ACTIVATION_ADMIN_KEY
+        sync: false
+      - key: LUA_SHOP_ACCOUNT_HMAC_KEY
+        sync: false
+      - key: HF_LUA_COMMUNITY_WRITE_TOKEN
+        sync: false
+      - key: ARCHIVE_SERVICE_TOKEN
+        sync: false
+      - key: HF_DEPOT_ARCHIVE_BRANCH
+        value: archive-staging
+      - key: HF_LUA_COMMUNITY_REPO
+        value: Immaking/Luas
+      - key: HF_LUA_COMMUNITY_BRANCH
+        value: main
+      - key: STEAM_WEB_API_KEY
+        sync: false
+      - key: SOCIAL_ENABLED
+        value: "true"
+      - key: SOCIAL_CANARY_MODE
+        value: "true"
+      - key: SOCIAL_CANARY_DISCORD_IDS
+        sync: false
+      - key: SOCIAL_ACCOUNT_HMAC_KEY
+        sync: false
+      - key: WEB_AUTH_ENABLED
+        value: "false"
+      - key: REMOTE_WEB_ENABLED
+        value: "false"
+      - key: REMOTE_CANARY_DISCORD_IDS
+        sync: false
+      - key: PUBLIC_WEB_URL
+        value: https://0xo-lemon-launcher.vercel.app
+      - key: PUBLIC_BASE_URL
+        value: https://zeroxolemon-launcher.onrender.com
+      - key: WEB_ALLOWED_ORIGINS
+        # Cookie-authenticated web origins; desktop API policy is separate.
+        value: https://0xo-lemon-launcher.vercel.app
+      - key: DISCORD_CLIENT_ID
+        sync: false
+      - key: DISCORD_CLIENT_SECRET
+        sync: false
+      - key: DISCORD_WEB_REDIRECT_URI
+        value: https://0xo-lemon-launcher.vercel.app/api/0xolemon/auth/discord/callback
+      - key: WEB_SESSION_ENCRYPTION_KEY
+        sync: false
+      - key: REMOTE_ACCOUNT_HMAC_KEY
+        sync: false
+      - key: LEGAL_TERMS_VERSION
+        value: "2026-08-25"
+      - key: LEGAL_PRIVACY_VERSION
+        value: "2026-08-25"
+      - key: HF_SOCIAL_MEDIA_TOKEN
+        sync: false
+      - key: HF_SOCIAL_MEDIA_REPO
+        value: PROBBI/PROBBINE
+      - key: HF_SOCIAL_MEDIA_BRANCH
+        value: main
+      - key: EA_CLIENT_SECRET
+        sync: false
+      - key: EA_MACHINE_HASH
+        sync: false
+      - key: EA_REFRESH_TOKEN_BOOTSTRAP
+        sync: false
+      - key: ACTIVATION_PACKAGE_URL
+        sync: false
+      - key: ACTIVATION_PACKAGE_VERSION
+        sync: false
+      - key: ACTIVATION_PACKAGE_SIZE_BYTES
+        sync: false
+      - key: ACTIVATION_PACKAGE_SHA256
+        sync: false
+      - key: ACTIVATION_PACKAGE_PASSWORD
+        sync: false
+      - key: ACTIVATION_PACKAGE_FILES_JSON
+        sync: false

@@ -1,0 +1,868 @@
+// ============================================================
+// 🔥 0xoLemon Multi-Tenant Backend - Firebase Optimizer
+// ============================================================
+// Supports multiple Firebase projects (0xoLemon, 0xoLemon-1)
+// Giải quyết: 807 listeners → 0, 49k reads/day → 100 reads/day per tenant
+
+const express = require('express');
+const http = require('http');
+const { createHttpPolicy } = require('./http-policy');
+const NodeCache = require('node-cache');
+const admin = require('firebase-admin');
+const rateLimit = require('express-rate-limit');
+const crypto = require('crypto');
+const { createOfflineActivationRouter } = require('./activation/routes');
+const { constantTimeKeyMatches } = require('./activation/secret-crypto');
+const { createLuaShopRouter } = require('./lua-shop/routes');
+const { loadSocialConfig } = require('./social/config');
+const { createSocialRouter } = require('./social/routes');
+const { assertRemoteConfig, loadRemoteConfig } = require('./remote/config');
+const { RemoteEventHub } = require('./remote/events');
+const { DeviceGateway } = require('./remote/gateway');
+const { RemoteService } = require('./remote/service');
+const { createRemoteRouter } = require('./remote/routes');
+const { attachDeviceSocketServer } = require('./remote/socket');
+
+const app = express();
+app.set('trust proxy', 1);
+const PORT = process.env.PORT || 8080;
+const socialConfig = loadSocialConfig();
+const remoteConfig = loadRemoteConfig();
+assertRemoteConfig(remoteConfig);
+const remoteEventHub = new RemoteEventHub();
+const deviceGateway = new DeviceGateway(remoteEventHub);
+
+// Cache: 1 giờ TTL per tenant
+const cache = new NodeCache({ stdTTL: 3600 });
+
+// ============================================================
+// MULTI-TENANT FIREBASE ADMIN INIT
+// ============================================================
+
+/**
+ * Tenant configuration
+ * Each tenant has its own Firebase project and service account
+ */
+const TENANTS = {
+  '0xolemon': {
+    name: '0xoLemon',
+    projectId: 'xolemon-b360e',
+    credentialsEnv: 'FIREBASE_0XOLEMON_CREDENTIALS_JSON',
+    app: null,
+    db: null
+  },
+  '0xolemon1': {
+    name: '0xoLemon-1',
+    projectId: 'xolemon-1',
+    credentialsEnv: 'FIREBASE_0XOLEMON1_CREDENTIALS_JSON',
+    app: null,
+    db: null
+  }
+};
+
+/**
+ * Initialize Firebase Admin SDK for a specific tenant
+ */
+function initializeTenant(tenantId, config) {
+  try {
+    let serviceAccount;
+
+    // Try to load credentials from env var
+    const credentialsJson = process.env[config.credentialsEnv];
+    if (credentialsJson) {
+      serviceAccount = JSON.parse(credentialsJson);
+      console.log(`✅ [${config.name}] Loaded credentials from ${config.credentialsEnv}`);
+    } else {
+      console.error(`❌ [${config.name}] Missing credentials: ${config.credentialsEnv}`);
+      return false;
+    }
+
+    // Validate project ID matches
+    if (serviceAccount.project_id !== config.projectId) {
+      console.error(`❌ [${config.name}] Project ID mismatch! Expected: ${config.projectId}, Got: ${serviceAccount.project_id}`);
+      return false;
+    }
+
+    // Initialize Firebase app with unique name
+    config.app = admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+      projectId: config.projectId
+    }, tenantId); // Use tenantId as app name
+
+    config.db = config.app.firestore();
+
+    console.log(`✅ [${config.name}] Firebase Admin initialized (Project: ${config.projectId})`);
+    return true;
+  } catch (error) {
+    console.error(`❌ [${config.name}] Firebase init error:`, error.message);
+    return false;
+  }
+}
+
+// Initialize all tenants
+console.log('🔥 Initializing multi-tenant Firebase...');
+let initializedCount = 0;
+
+for (const [tenantId, config] of Object.entries(TENANTS)) {
+  if (initializeTenant(tenantId, config)) {
+    initializedCount++;
+  }
+}
+
+if (initializedCount === 0) {
+  console.error('❌ No tenants initialized! Exiting...');
+  process.exit(1);
+}
+
+console.log(`✅ Initialized ${initializedCount}/${Object.keys(TENANTS).length} tenants`);
+
+/**
+ * Get Firestore DB instance for a tenant
+ */
+function getTenantDb(tenantId) {
+  const config = TENANTS[tenantId];
+  if (!config || !config.db) {
+    throw new Error(`Tenant '${tenantId}' not found or not initialized`);
+  }
+  return config.db;
+}
+
+// ============================================================
+// MIDDLEWARE
+// ============================================================
+
+app.use(createHttpPolicy(remoteConfig));
+app.use(express.json({ limit: '32kb' }));
+
+const searchWriteLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many search events, please try again later' }
+});
+
+function normalizeSearchTerm(value) {
+  if (typeof value !== 'string') return '';
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, 80);
+}
+
+function searchTermKey(term) {
+  return crypto.createHash('sha256').update(term).digest('hex');
+}
+
+function timestampToIso(value) {
+  if (value && typeof value.toDate === 'function') return value.toDate().toISOString();
+  return typeof value === 'string' ? value : '';
+}
+
+function clearSearchStatsCache(tenantId) {
+  cache.keys()
+    .filter((key) => key.startsWith(`${tenantId}:search-stats`))
+    .forEach((key) => cache.del(key));
+}
+
+// Tenant validator middleware
+function validateTenant(req, res, next) {
+  const tenantId = req.params.tenant;
+
+  if (!tenantId) {
+    return res.status(400).json({ error: 'Tenant ID required' });
+  }
+
+  if (!TENANTS[tenantId]) {
+    return res.status(404).json({
+      error: `Tenant '${tenantId}' not found`,
+      availableTenants: Object.keys(TENANTS)
+    });
+  }
+
+  if (!TENANTS[tenantId].db) {
+    return res.status(503).json({
+      error: `Tenant '${tenantId}' not initialized`,
+      tenantName: TENANTS[tenantId].name
+    });
+  }
+
+  next();
+}
+
+// Request logging with tenant info
+app.use((req, res, next) => {
+  const tenantId = req.params.tenant || 'N/A';
+  console.log(`${new Date().toISOString()} - [${tenantId}] ${req.method} ${req.path}`);
+  next();
+});
+
+// ============================================================
+// HEALTH CHECK
+// ============================================================
+app.get('/health', (req, res) => {
+  const tenantsStatus = {};
+  for (const [id, config] of Object.entries(TENANTS)) {
+    tenantsStatus[id] = {
+      name: config.name,
+      projectId: config.projectId,
+      initialized: !!config.db
+    };
+  }
+
+  res.json({
+    status: 'ok',
+    service: '0xoLemon Multi-Tenant Backend',
+    version: '2.0.0',
+    uptime: process.uptime(),
+    cache_keys: cache.keys().length,
+    social: {
+      enabled: socialConfig.enabled,
+      canary: socialConfig.canaryMode,
+      coverPublisherConfigured: Boolean(socialConfig.cover.token && socialConfig.cover.repoName)
+    },
+    tenants: tenantsStatus
+  });
+});
+
+// ============================================================
+// MULTI-TENANT API ENDPOINTS
+// ============================================================
+
+/**
+ * GET /api/:tenant/catalog
+ * Returns game catalog for specified tenant (cached 1 hour)
+ */
+app.get('/api/:tenant/catalog', validateTenant, async (req, res) => {
+  try {
+    const tenantId = req.params.tenant;
+    const cacheKey = `${tenantId}:catalog`;
+    let data = cache.get(cacheKey);
+
+    if (!data) {
+      console.log(`📡 [${tenantId}] Fetching catalog from Firestore...`);
+      const db = getTenantDb(tenantId);
+      const docRef = db.collection('config').doc('gameCatalog');
+      const doc = await docRef.get();
+
+      if (!doc.exists) {
+        return res.status(404).json({ error: 'Catalog not found' });
+      }
+
+      data = doc.data();
+      cache.set(cacheKey, data);
+      console.log(`✅ [${tenantId}] Catalog cached`);
+    } else {
+      console.log(`💾 [${tenantId}] Serving catalog from cache`);
+    }
+
+    res.json({
+      defaultLocale: data.defaultLocale || 'en-US',
+      games: data.games || []
+    });
+  } catch (error) {
+    console.error(`❌ [${req.params.tenant}] Error fetching catalog:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/:tenant/assets
+ * Returns assets override for specified tenant (cached 1 hour)
+ */
+app.get('/api/:tenant/assets', validateTenant, async (req, res) => {
+  try {
+    const tenantId = req.params.tenant;
+    const cacheKey = `${tenantId}:assets`;
+    let data = cache.get(cacheKey);
+
+    if (!data) {
+      console.log(`📡 [${tenantId}] Fetching assets from Firestore...`);
+      const db = getTenantDb(tenantId);
+      const docRef = db.collection('config').doc('assets_override');
+      const doc = await docRef.get();
+
+      if (!doc.exists) {
+        return res.status(404).json({ error: 'Assets not found' });
+      }
+
+      data = doc.data();
+      cache.set(cacheKey, data);
+      console.log(`✅ [${tenantId}] Assets cached`);
+    } else {
+      console.log(`💾 [${tenantId}] Serving assets from cache`);
+    }
+
+    res.json(data);
+  } catch (error) {
+    console.error(`❌ [${req.params.tenant}] Error fetching assets:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/:tenant/tags
+ * Returns version tags for specified tenant (cached 1 hour)
+ */
+app.get('/api/:tenant/tags', validateTenant, async (req, res) => {
+  try {
+    const tenantId = req.params.tenant;
+    const cacheKey = `${tenantId}:tags`;
+    let data = cache.get(cacheKey);
+
+    if (!data) {
+      console.log(`📡 [${tenantId}] Fetching version tags from Firestore...`);
+      const db = getTenantDb(tenantId);
+      const docRef = db.collection('config').doc('version_tags');
+      const doc = await docRef.get();
+
+      if (!doc.exists) {
+        return res.status(404).json({ error: 'Version tags not found' });
+      }
+
+      data = doc.data();
+      cache.set(cacheKey, data);
+      console.log(`✅ [${tenantId}] Version tags cached`);
+    } else {
+      console.log(`💾 [${tenantId}] Serving version tags from cache`);
+    }
+
+    res.json(data);
+  } catch (error) {
+    console.error(`❌ [${req.params.tenant}] Error fetching version tags:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/:tenant/game-tags
+ * Returns game tags for specified tenant
+ */
+app.get('/api/:tenant/game-tags', validateTenant, async (req, res) => {
+  try {
+    const tenantId = req.params.tenant;
+    const cacheKey = `${tenantId}:game-tags`;
+    let data = cache.get(cacheKey);
+
+    if (!data) {
+      console.log(`📡 [${tenantId}] Fetching game tags from Firestore...`);
+      const db = getTenantDb(tenantId);
+      const docRef = db.collection('config').doc('gameTags');
+      const doc = await docRef.get();
+
+      if (!doc.exists) {
+        return res.status(404).json({ error: 'Game tags not found' });
+      }
+
+      data = doc.data();
+      cache.set(cacheKey, data);
+      console.log(`✅ [${tenantId}] Game tags cached`);
+    } else {
+      console.log(`💾 [${tenantId}] Serving game tags from cache`);
+    }
+
+    res.json(data);
+  } catch (error) {
+    console.error(`❌ [${req.params.tenant}] Error fetching game tags:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/:tenant/game-stats
+ * Returns game stats for specified tenant
+ */
+app.get('/api/:tenant/game-stats', validateTenant, async (req, res) => {
+  try {
+    const tenantId = req.params.tenant;
+    const cacheKey = `${tenantId}:game-stats`;
+    let data = cache.get(cacheKey);
+
+    if (!data) {
+      console.log(`📡 [${tenantId}] Fetching game stats from Firestore...`);
+      const db = getTenantDb(tenantId);
+      const docRef = db.collection('config').doc('gameStats');
+      const doc = await docRef.get();
+
+      if (!doc.exists) {
+        return res.status(404).json({ error: 'Game stats not found' });
+      }
+
+      data = doc.data();
+      cache.set(cacheKey, data);
+      console.log(`✅ [${tenantId}] Game stats cached`);
+    } else {
+      console.log(`💾 [${tenantId}] Serving game stats from cache`);
+    }
+
+    res.json(data);
+  } catch (error) {
+    console.error(`❌ [${req.params.tenant}] Error fetching game stats:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/:tenant/search-stats
+ * Returns anonymized aggregate search trends and optional query volume.
+ */
+app.get('/api/:tenant/search-stats', validateTenant, async (req, res) => {
+  try {
+    const tenantId = req.params.tenant;
+    const normalizedQuery = normalizeSearchTerm(req.query.query || '');
+    const queryKey = normalizedQuery ? searchTermKey(normalizedQuery) : 'overview';
+    const cacheKey = `${tenantId}:search-stats:${queryKey}`;
+    let data = cache.get(cacheKey);
+
+    if (!data) {
+      const db = getTenantDb(tenantId);
+      const trendingPromise = db.collection('searchTerms').orderBy('count', 'desc').limit(12).get();
+      const clicksPromise = db.collection('gameSearchClicks').orderBy('clicks', 'desc').limit(50).get();
+      const queryPromise = normalizedQuery
+        ? db.collection('searchTerms').doc(queryKey).get()
+        : Promise.resolve(null);
+
+      const [trendingSnapshot, clicksSnapshot, queryDocument] = await Promise.all([
+        trendingPromise,
+        clicksPromise,
+        queryPromise
+      ]);
+
+      const trending = trendingSnapshot.docs.map((document) => {
+        const termData = document.data();
+        return {
+          term: termData.term || '',
+          searches: Number(termData.count || 0),
+          lastSearchedAt: timestampToIso(termData.lastSearchedAt)
+        };
+      }).filter((entry) => entry.term);
+
+      const gameClicks = {};
+      clicksSnapshot.docs.forEach((document) => {
+        gameClicks[document.id] = Number(document.data().clicks || 0);
+      });
+
+      let query = null;
+      if (queryDocument && queryDocument.exists) {
+        const queryData = queryDocument.data();
+        query = {
+          term: queryData.term || normalizedQuery,
+          searches: Number(queryData.count || 0),
+          lastSearchedAt: timestampToIso(queryData.lastSearchedAt)
+        };
+      } else if (normalizedQuery) {
+        query = { term: normalizedQuery, searches: 0 };
+      }
+
+      data = {
+        trending,
+        query,
+        gameClicks,
+        generatedAt: new Date().toISOString()
+      };
+      cache.set(cacheKey, data, 300);
+    }
+
+    res.json(data);
+  } catch (error) {
+    console.error(`[${req.params.tenant}] Error fetching search stats:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/:tenant/search-events
+ * Records aggregate terms and result selections without user identifiers.
+ */
+app.post('/api/:tenant/search-events', searchWriteLimiter, validateTenant, async (req, res) => {
+  try {
+    const tenantId = req.params.tenant;
+    const normalizedQuery = normalizeSearchTerm(req.body.query);
+    const source = typeof req.body.source === 'string' ? req.body.source : '';
+    const selectedGameId = typeof req.body.selectedGameId === 'string' ? req.body.selectedGameId.trim() : '';
+    const resultCount = Number(req.body.resultCount);
+    const validSources = new Set(['stable-query', 'submit', 'suggestion-click', 'result-click']);
+
+    if (normalizedQuery.length < 2) return res.status(400).json({ error: 'Search query must contain at least 2 characters' });
+    if (!validSources.has(source)) return res.status(400).json({ error: 'Invalid search event source' });
+    if (!Number.isInteger(resultCount) || resultCount < 0 || resultCount > 10000) {
+      return res.status(400).json({ error: 'Invalid result count' });
+    }
+    if (selectedGameId && !/^[a-zA-Z0-9_.-]{1,100}$/.test(selectedGameId)) {
+      return res.status(400).json({ error: 'Invalid game ID' });
+    }
+    if (source === 'result-click' && !selectedGameId) {
+      return res.status(400).json({ error: 'Result click requires a game ID' });
+    }
+
+    const db = getTenantDb(tenantId);
+    const writes = [];
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    if (source !== 'result-click') {
+      writes.push(db.collection('searchTerms').doc(searchTermKey(normalizedQuery)).set({
+        term: normalizedQuery,
+        count: admin.firestore.FieldValue.increment(1),
+        resultCountTotal: admin.firestore.FieldValue.increment(resultCount),
+        lastSearchedAt: now,
+        updatedAt: now
+      }, { merge: true }));
+    }
+
+    if (selectedGameId) {
+      writes.push(db.collection('gameSearchClicks').doc(selectedGameId).set({
+        gameId: selectedGameId,
+        clicks: admin.firestore.FieldValue.increment(1),
+        lastClickedAt: now,
+        updatedAt: now
+      }, { merge: true }));
+    }
+
+    await Promise.all(writes);
+    clearSearchStatsCache(tenantId);
+    res.status(202).json({ accepted: true });
+  } catch (error) {
+    console.error(`[${req.params.tenant}] Error recording search event:`, error);
+    res.status(500).json({ error: 'Could not record search event' });
+  }
+});
+
+/**
+ * GET /api/:tenant/app-settings
+ * Returns app settings for specified tenant
+ */
+app.get('/api/:tenant/app-settings', validateTenant, async (req, res) => {
+  try {
+    const tenantId = req.params.tenant;
+    const cacheKey = `${tenantId}:app-settings`;
+    let data = cache.get(cacheKey);
+
+    if (!data) {
+      console.log(`📡 [${tenantId}] Fetching app settings from Firestore...`);
+      const db = getTenantDb(tenantId);
+      const docRef = db.collection('config').doc('appSettings');
+      const doc = await docRef.get();
+
+      if (!doc.exists) {
+        return res.status(404).json({ error: 'App settings not found' });
+      }
+
+      data = doc.data();
+      cache.set(cacheKey, data);
+      console.log(`✅ [${tenantId}] App settings cached`);
+    } else {
+      console.log(`💾 [${tenantId}] Serving app settings from cache`);
+    }
+
+    res.json(data);
+  } catch (error) {
+    console.error(`❌ [${req.params.tenant}] Error fetching app settings:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/:tenant/cloud-save-map
+ * Returns cloud save map for specified tenant
+ */
+app.get('/api/:tenant/cloud-save-map', validateTenant, async (req, res) => {
+  try {
+    const tenantId = req.params.tenant;
+    const cacheKey = `${tenantId}:cloud-save-map`;
+    let data = cache.get(cacheKey);
+
+    if (!data) {
+      console.log(`📡 [${tenantId}] Fetching cloud save map from Firestore...`);
+      const db = getTenantDb(tenantId);
+      const docRef = db.collection('config').doc('cloudSaveMap');
+      const doc = await docRef.get();
+
+      if (!doc.exists) {
+        return res.status(404).json({ error: 'Cloud save map not found' });
+      }
+
+      data = doc.data();
+      cache.set(cacheKey, data);
+      console.log(`✅ [${tenantId}] Cloud save map cached`);
+    } else {
+      console.log(`💾 [${tenantId}] Serving cloud save map from cache`);
+    }
+
+    res.json(data);
+  } catch (error) {
+    console.error(`❌ [${req.params.tenant}] Error fetching cloud save map:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/:tenant/steam-appids
+ * Returns Steam AppIDs mapping for specified tenant
+ */
+app.get('/api/:tenant/steam-appids', validateTenant, async (req, res) => {
+  try {
+    const tenantId = req.params.tenant;
+    const cacheKey = `${tenantId}:steam-appids`;
+    let data = cache.get(cacheKey);
+
+    if (!data) {
+      console.log(`📡 [${tenantId}] Fetching Steam AppIDs from Firestore...`);
+      const db = getTenantDb(tenantId);
+      const docRef = db.collection('config').doc('steam_appids');
+      const doc = await docRef.get();
+
+      if (!doc.exists) {
+        return res.status(404).json({ error: 'Steam AppIDs not found' });
+      }
+
+      data = doc.data();
+      cache.set(cacheKey, data);
+      console.log(`✅ [${tenantId}] Steam AppIDs cached`);
+    } else {
+      console.log(`💾 [${tenantId}] Serving Steam AppIDs from cache`);
+    }
+
+    res.json(data);
+  } catch (error) {
+    console.error(`❌ [${req.params.tenant}] Error fetching Steam AppIDs:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+const steamLibraryLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 45,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many Steam data requests, please try again later' }
+});
+
+function parseSteamId(value) {
+  const steamId = typeof value === 'string' ? value.trim() : '';
+  return /^7656119\d{10}$/.test(steamId) ? steamId : null;
+}
+
+function parseSteamAppId(value) {
+  return typeof value === 'string' && /^\d{1,10}$/.test(value) ? value : null;
+}
+
+async function steamApiJson(path, params) {
+  const apiKey = process.env.STEAM_WEB_API_KEY?.trim();
+  if (!apiKey) {
+    const error = new Error('Steam library integration is not configured');
+    error.statusCode = 503;
+    throw error;
+  }
+  const url = new URL(`https://api.steampowered.com/${path}`);
+  url.searchParams.set('key', apiKey);
+  url.searchParams.set('format', 'json');
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+  const response = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(7000) });
+  if (!response.ok) {
+    const error = new Error(`Steam API returned ${response.status}`);
+    error.statusCode = response.status === 429 ? 503 : 502;
+    throw error;
+  }
+  return response.json();
+}
+
+/**
+ * GET /api/:tenant/steam/library/:appid
+ * Returns private player stats through the backend. The API key never reaches the client.
+ */
+app.get('/api/:tenant/steam/library/:appid', validateTenant, steamLibraryLimiter, async (req, res) => {
+  try {
+    const appId = parseSteamAppId(req.params.appid);
+    const steamId = parseSteamId(process.env.STEAM_PROFILE_ID);
+    if (!appId) return res.status(400).json({ error: 'A numeric Steam App ID is required' });
+    if (!steamId) return res.status(503).json({ error: 'Steam profile integration is not configured' });
+
+    const cacheKey = `steam-library:${steamId}:${appId}`;
+    const cached = cache.get(cacheKey);
+    if (cached) return res.json(cached);
+
+    const [ownedResult, achievementsResult] = await Promise.allSettled([
+      steamApiJson('IPlayerService/GetOwnedGames/v0001/', { steamid: steamId, include_appinfo: 'false', include_played_free_games: 'true', appids_filter: `[${appId}]` }),
+      steamApiJson('ISteamUserStats/GetPlayerAchievements/v0001/', { steamid: steamId, appid: appId, l: 'english' })
+    ]);
+
+    const game = ownedResult.status === 'fulfilled'
+      ? ownedResult.value?.response?.games?.find((item) => String(item.appid) === appId)
+      : null;
+    const playerStats = achievementsResult.status === 'fulfilled' ? achievementsResult.value?.playerstats : null;
+    const achievements = Array.isArray(playerStats?.achievements) ? playerStats.achievements.map((item) => ({
+      id: String(item.apiname || ''),
+      name: String(item.name || item.apiname || 'Achievement'),
+      description: String(item.description || ''),
+      iconUrl: typeof item.icon === 'string' && item.icon.startsWith('https://') ? item.icon : '',
+      unlocked: item.achieved === 1,
+      unlockTime: Number.isFinite(item.unlocktime) && item.unlocktime > 0 ? item.unlocktime : null
+    })) : [];
+
+    const payload = {
+      playtimeMinutes: Number.isFinite(game?.playtime_forever) ? game.playtime_forever : null,
+      lastPlayedAt: Number.isFinite(game?.rtime_last_played) && game.rtime_last_played > 0 ? new Date(game.rtime_last_played * 1000).toISOString() : null,
+      achievements,
+      unlockedAchievements: achievements.filter((item) => item.unlocked).length
+    };
+    cache.set(cacheKey, payload, 300);
+    res.set('Cache-Control', 'private, max-age=60');
+    res.json(payload);
+  } catch (error) {
+    console.error(`❌ [${req.params.tenant}] Steam library request failed:`, error.message);
+    res.status(error.statusCode || 502).json({ error: error.message || 'Steam data is temporarily unavailable' });
+  }
+});
+
+/**
+ * GET /api/:tenant/game-details/:gameId
+ * Returns detailed game metadata for specified tenant
+ */
+app.get('/api/:tenant/game-details/:gameId', validateTenant, async (req, res) => {
+  try {
+    const tenantId = req.params.tenant;
+    const { gameId } = req.params;
+    const cacheKey = `${tenantId}:game-details-${gameId}`;
+    let data = cache.get(cacheKey);
+
+    if (!data) {
+      console.log(`📡 [${tenantId}] Fetching game details for ${gameId} from Firestore...`);
+      const db = getTenantDb(tenantId);
+      const docRef = db.collection('gameDetails').doc(gameId);
+      const doc = await docRef.get();
+
+      if (!doc.exists) {
+        return res.status(404).json({ error: 'Game details not found' });
+      }
+
+      data = doc.data();
+      cache.set(cacheKey, data);
+      console.log(`✅ [${tenantId}] Game details for ${gameId} cached`);
+    } else {
+      console.log(`💾 [${tenantId}] Serving game details for ${gameId} from cache`);
+    }
+
+    res.json(data);
+  } catch (error) {
+    console.error(`❌ [${req.params.tenant}] Error fetching game details for ${req.params.gameId}:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.use(
+  '/api/:tenant/offline-activation',
+  validateTenant,
+  createOfflineActivationRouter({ getTenantDb })
+);
+
+app.use(
+  '/api/:tenant/lua-shop',
+  validateTenant,
+  createLuaShopRouter({ getTenantDb })
+);
+
+app.use(
+  '/api/:tenant/social',
+  validateTenant,
+  createSocialRouter({ getTenantDb, config: socialConfig })
+);
+
+const remoteService = new RemoteService({
+  getTenantDb,
+  config: remoteConfig,
+  gateway: deviceGateway,
+  eventHub: remoteEventHub
+});
+
+app.use(
+  '/api/:tenant',
+  validateTenant,
+  createRemoteRouter({ service: remoteService, config: remoteConfig, eventHub: remoteEventHub })
+);
+
+function requireAdminKey(req, res, next) {
+  const configuredKey = process.env.ACTIVATION_ADMIN_KEY || '';
+  const providedKey = req.get('x-admin-key') || '';
+  if (!configuredKey) {
+    return res.status(503).json({ error: 'Admin endpoint is not configured' });
+  }
+  if (!constantTimeKeyMatches(providedKey, configuredKey)) {
+    return res.status(401).json({ error: 'Admin authorization required' });
+  }
+  next();
+}
+
+/**
+ * POST /api/:tenant/cache/clear
+ * Clear cache for specified tenant (admin endpoint)
+ */
+app.post('/api/:tenant/cache/clear', validateTenant, requireAdminKey, (req, res) => {
+  const tenantId = req.params.tenant;
+  const { key } = req.body;
+
+  if (key) {
+    const tenantKey = `${tenantId}:${key}`;
+    cache.del(tenantKey);
+    console.log(`🗑️  [${tenantId}] Cleared cache key: ${key}`);
+    res.json({ message: `Cache cleared for ${tenantId}:${key}` });
+  } else {
+    // Clear all keys for this tenant
+    const allKeys = cache.keys();
+    const tenantKeys = allKeys.filter(k => k.startsWith(`${tenantId}:`));
+    tenantKeys.forEach(k => cache.del(k));
+    console.log(`🗑️  [${tenantId}] Cleared ${tenantKeys.length} cache keys`);
+    res.json({ message: `All cache cleared for tenant: ${tenantId}`, cleared: tenantKeys.length });
+  }
+});
+
+// ============================================================
+// ERROR HANDLING
+// ============================================================
+app.use((req, res) => {
+  res.status(404).json({ error: 'Endpoint not found' });
+});
+
+app.use((err, req, res, next) => {
+  if (err.message === 'CORS_ORIGIN_DENIED') {
+    // Only public request metadata; never log cookies, bearer tokens or queries.
+    console.warn('[cors] rejected origin', JSON.stringify({ origin: String(req.get('origin') || '').slice(0, 256), path: req.path }));
+  } else {
+    console.error('❌ Server error:', err);
+  }
+  const status = Number.isInteger(err.status) && err.status >= 400 && err.status <= 599 ? err.status : 500;
+  const safeCode = /^[A-Z0-9_]{3,80}$/.test(String(err.message || '')) ? err.message : 'INTERNAL_SERVER_ERROR';
+  res.status(status).json({ error: safeCode });
+});
+
+// ============================================================
+// START SERVER
+// ============================================================
+const server = http.createServer(app);
+attachDeviceSocketServer(server, { service: remoteService, gateway: deviceGateway });
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log('');
+  console.log('========================================');
+  console.log('🚀 0xoLemon Multi-Tenant Backend');
+  console.log('========================================');
+  console.log(`🌐 Server: http://0.0.0.0:${PORT}`);
+  console.log(`📊 Health: http://0.0.0.0:${PORT}/health`);
+  console.log('');
+  console.log('🔥 Active Tenants:');
+  for (const [id, config] of Object.entries(TENANTS)) {
+    if (config.db) {
+      console.log(`   ✅ ${config.name} (${id}) → ${config.projectId}`);
+      console.log(`      API: /api/${id}/catalog, /api/${id}/assets, etc.`);
+    } else {
+      console.log(`   ❌ ${config.name} (${id}) → Not initialized`);
+    }
+  }
+  console.log('========================================');
+  console.log(`🔐 Web auth: ${remoteConfig.webAuthEnabled ? 'enabled' : 'disabled'}`);
+  console.log(`🖥️  Remote web: ${remoteConfig.remoteWebEnabled ? 'enabled' : 'disabled'}`);
+  console.log('');
+});

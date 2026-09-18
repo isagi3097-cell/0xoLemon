@@ -1,0 +1,216 @@
+.lua-provider-diagnostics {
+  color: var(--text-color, #e2e8f0);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+  background: var(--theme-card-bg-soft, rgba(0, 0, 0, 0.25));
+  padding: 16px;
+  margin-block: 16px;
+  font-size: 13px;
+}
+
+.lua-provider-diagnostics header {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.lua-provider-diagnostics h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  color: #fff;
+}
+
+.lua-provider-diagnostics h4 {
+  font-size: 13px;
+  margin: 14px 0 8px;
+  color: #fff;
+}
+
+.lua-provider-diagnostics p {
+  margin: 6px 0 12px;
+  line-height: 1.55;
+}
+
+.lpd-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lua-provider-diagnostics button {
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  border-radius: 6px;
+  background: var(--theme-control-bg, rgba(255, 255, 255, 0.06));
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.lua-provider-diagnostics button:hover:not(:disabled) {
+  background: var(--theme-control-hover-bg, rgba(255, 255, 255, 0.12));
+  color: #fff;
+}
+
+.lua-provider-diagnostics button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.lua-provider-diagnostics :is(button, select, input, summary):focus-visible {
+  outline: 2px solid var(--theme-accent-strong, #8cd5e5);
+  outline-offset: 3px;
+}
+
+.lpd-note {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+}
+
+.lpd-warning {
+  color: #f4d592;
+}
+
+.lpd-error {
+  color: #ffb8ad;
+  overflow-wrap: anywhere;
+}
+
+.lpd-provider-grid, .lpd-capabilities, .lpd-components {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
+  gap: 8px;
+}
+
+.lua-provider-diagnostics article {
+  padding: 10px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  background: var(--theme-card-bg, rgba(255, 255, 255, 0.02));
+  display: flex;
+  gap: 6px;
+  flex-direction: column;
+  overflow-wrap: anywhere;
+}
+
+.lua-provider-diagnostics article strong {
+  font-size: 13px;
+  color: #fff;
+}
+
+.lua-provider-diagnostics article span {
+  font-size: 12px;
+}
+
+.lua-provider-diagnostics article small, .lua-provider-diagnostics article code {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.65);
+  line-height: 1.45;
+}
+
+.lua-provider-diagnostics article.is-ready {
+  border-color: color-mix(in oklab, transparent 50%, #537e69 50%);
+}
+
+.lua-provider-diagnostics article:is(.is-unavailable, .is-blocked) {
+  border-color: color-mix(in oklab, transparent 50%, #94665d 50%);
+}
+
+.lua-provider-diagnostics article.is-disabled {
+  opacity: .75;
+}
+
+.lua-provider-diagnostics details {
+  margin-block: 12px;
+}
+
+.lua-provider-diagnostics summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 6px 0;
+}
+
+.lpd-table-wrap {
+  overflow-x: auto;
+}
+
+.lua-provider-diagnostics table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+
+.lua-provider-diagnostics th, .lua-provider-diagnostics td {
+  padding: 8px;
+  border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+}
+
+.lpd-history {
+  margin: 8px 0;
+  padding-left: 22px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.lpd-policy {
+  max-width: 620px;
+}
+
+.lpd-policy label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-block: 10px;
+}
+
+.lpd-policy select, .lpd-policy input {
+  color: inherit;
+  background: var(--launcher-page-bg, rgba(0, 0, 0, 0.3));
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  border-radius: 6px;
+  min-height: 34px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.lpd-order {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 12px;
+}
+
+.lpd-order li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-block: 5px;
+}
+
+.lpd-order li span {
+  flex: 1;
+}
+
+.lpd-order button {
+  min-width: 34px;
+}
+
+.lpd-effects {
+  line-height: 1.6;
+  padding-left: 20px;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .lua-provider-diagnostics {
+    padding: 12px;
+  }
+  .lpd-provider-grid, .lpd-capabilities {
+    grid-template-columns: 1fr;
+  }
+}

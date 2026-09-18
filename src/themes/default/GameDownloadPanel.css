@@ -1,0 +1,489 @@
+﻿/* ============================================================
+   GameDownloadPanel.css
+   Styles cho panel download gop vao Store/Library detail
+   ============================================================ */
+
+.gdp-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 18px;
+  background: rgba(0, 0, 0, 0.28);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* -- Dir row --------------------------------------------------------------- */
+.gdp-dir-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.gdp-dir-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.gdp-dir-input-wrap {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-width: 160px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.25);
+  transition: border-color 0.15s;
+}
+
+.gdp-dir-input-wrap:focus-within {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.gdp-dir-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 12px;
+  padding: 5px 9px;
+  outline: none;
+  min-width: 0;
+}
+
+.gdp-dir-input:disabled {
+  opacity: 0.5;
+}
+
+.gdp-dir-browse {
+  background: rgba(255, 255, 255, 0.07);
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+  padding: 5px 9px;
+  cursor: pointer;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+}
+
+.gdp-dir-browse:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.gdp-dir-browse:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.gdp-disk-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* -- Action row ------------------------------------------------------------ */
+.gdp-action-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.gdp-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.gdp-summary-chip {
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.gdp-load-error {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #ff7070;
+  font-size: 11px;
+}
+
+@keyframes gdp-spin {
+  to { transform: rotate(360deg); }
+}
+
+.gdp-spin {
+  animation: gdp-spin 0.9s linear infinite;
+  opacity: 0.7;
+}
+
+.gdp-status-msg {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* -- Action buttons -------------------------------------------------------- */
+.gdp-action-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.gdp-btn-download {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--theme-accent, #5c8aef);
+  border: none;
+  border-radius: 5px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: filter 0.15s, opacity 0.15s;
+}
+
+.gdp-btn-download:hover:not(:disabled) {
+  filter: brightness(1.18);
+}
+
+.gdp-btn-download:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.gdp-btn-pause {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255, 200, 60, 0.15);
+  border: 1px solid rgba(255, 200, 60, 0.3);
+  border-radius: 5px;
+  color: #ffc83c;
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.gdp-btn-pause:hover {
+  background: rgba(255, 200, 60, 0.28);
+}
+
+.gdp-btn-resume {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(80, 200, 120, 0.15);
+  border: 1px solid rgba(80, 200, 120, 0.3);
+  border-radius: 5px;
+  color: #50c878;
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.gdp-btn-resume:hover {
+  background: rgba(80, 200, 120, 0.28);
+}
+
+.gdp-btn-cancel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 80, 80, 0.12);
+  border: 1px solid rgba(255, 80, 80, 0.25);
+  border-radius: 5px;
+  color: #ff5050;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.gdp-btn-cancel:hover {
+  background: rgba(255, 80, 80, 0.28);
+}
+
+.gdp-btn-open {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(80, 200, 120, 0.12);
+  border: 1px solid rgba(80, 200, 120, 0.25);
+  border-radius: 5px;
+  color: #50c878;
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.gdp-btn-open:hover {
+  background: rgba(80, 200, 120, 0.25);
+}
+
+/* -- Progress -------------------------------------------------------------- */
+.gdp-progress-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gdp-progress-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.gdp-progress-fill {
+  height: 100%;
+  background: var(--theme-accent, #5c8aef);
+  border-radius: 3px;
+  transition: width 0.35s ease;
+}
+
+.gdp-progress-meta {
+  display: flex;
+  gap: 14px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* -- Status bar ------------------------------------------------------------ */
+.gdp-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.gdp-status-bar.is-error {
+  background: rgba(255, 80, 80, 0.1);
+  color: #ff7070;
+}
+
+.gdp-status-bar.is-success {
+  background: rgba(80, 200, 120, 0.1);
+  color: #50c878;
+}
+
+/* -- Advanced toggle ------------------------------------------------------- */
+.gdp-advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 0;
+  transition: color 0.15s;
+  align-self: flex-start;
+}
+
+.gdp-advanced-toggle:hover {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* -- Advanced panel -------------------------------------------------------- */
+.gdp-advanced-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.gdp-adv-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.gdp-adv-depots-row {
+  align-items: flex-start;
+}
+
+.gdp-adv-label {
+  color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
+  min-width: 68px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gdp-adv-label small {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 10px;
+}
+
+.gdp-adv-select {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  color: #fff;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+  outline: none;
+}
+
+.gdp-adv-select:focus {
+  border-color: var(--theme-accent, #5c8aef);
+}
+
+.gdp-adv-verify-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+}
+
+/* -- Depot list ------------------------------------------------------------ */
+.gdp-depot-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 190px;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.12) transparent;
+}
+
+.gdp-depot-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.gdp-depot-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+}
+
+.gdp-depot-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.12s;
+  user-select: none;
+}
+
+.gdp-depot-row input[type="checkbox"] {
+  display: none;
+}
+
+.gdp-depot-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.gdp-depot-row.is-checked {
+  background: rgba(92, 138, 239, 0.08);
+}
+
+.gdp-depot-chk {
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.3);
+  transition: color 0.12s;
+}
+
+.gdp-depot-row.is-checked .gdp-depot-chk {
+  color: var(--theme-accent, #5c8aef);
+}
+
+.gdp-depot-id {
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 10px;
+  min-width: 54px;
+  font-family: monospace;
+}
+
+.gdp-depot-name {
+  flex: 1;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.82);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gdp-depot-tag {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.09);
+  color: rgba(255, 255, 255, 0.45);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.gdp-depot-tag.is-locked {
+  background: rgba(255, 150, 50, 0.15);
+  color: #ff9632;
+}
+
+.gdp-depot-size {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-family: monospace;
+}
+
+/* -- Advanced download button ---------------------------------------------- */
+.gdp-adv-download-btn {
+  font-size: 11px;
+  padding: 5px 12px;
+  font-weight: 500;
+  align-self: flex-start;
+}

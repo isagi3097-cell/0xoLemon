@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "note": "Existing launcher avatar and restored canonical notification sounds, audited 2026-09-04. Asset overrides do not establish runtime source provenance.",
+  "files": [
+    {
+      "path": "embedded/gse/steam_settings.EXAMPLE/account_avatar.EXAMPLE.jpg",
+      "baselineSha256": "58f08592a940bcd85a9620b52c262b6ce1cd7a4b6cb6a3b6494028614794d2b2",
+      "sha256": "fb0c1671995a31896896aed73d8a966472b2caf3a08140cc301ffa6c2fbea1fa",
+      "sizeBytes": 5905
+    },
+    {
+      "path": "embedded/gse/steam_settings.EXAMPLE/account_avatar_default.EXAMPLE.jpg",
+      "baselineSha256": "58f08592a940bcd85a9620b52c262b6ce1cd7a4b6cb6a3b6494028614794d2b2",
+      "sha256": "fb0c1671995a31896896aed73d8a966472b2caf3a08140cc301ffa6c2fbea1fa",
+      "sizeBytes": 5905
+    },
+    {
+      "path": "embedded/gse_tools/generate_emu_config/_DEFAULT/1/steam_settings/account_avatar.jpg",
+      "baselineSha256": "58f08592a940bcd85a9620b52c262b6ce1cd7a4b6cb6a3b6494028614794d2b2",
+      "sha256": "fb0c1671995a31896896aed73d8a966472b2caf3a08140cc301ffa6c2fbea1fa",
+      "sizeBytes": 5905
+    },
+    {
+      "path": "embedded/gse_tools/generate_emu_config/_DEFAULT/1/steam_settings/account_avatar_default.jpg",
+      "baselineSha256": "58f08592a940bcd85a9620b52c262b6ce1cd7a4b6cb6a3b6494028614794d2b2",
+      "sha256": "fb0c1671995a31896896aed73d8a966472b2caf3a08140cc301ffa6c2fbea1fa",
+      "sizeBytes": 5905
+    },
+    {
+      "path": "embedded/gse_tools/generate_emu_config/_DEFAULT/1/steam_settings/sounds/overlay_achievement_notification.wav",
+      "baselineSha256": "7db2e0a85e47c75f7b64a4b89040f2a3129e2b5e2d03200d9aebea71d6b6572b",
+      "sha256": "938da00091c50b21c645276a5e5bed6ebfa5bde2c9ab94bd1c17e5ba1b4fd5d1",
+      "sizeBytes": 259126
+    },
+    {
+      "path": "embedded/gse_tools/generate_emu_config/_DEFAULT/1/steam_settings/sounds/overlay_friend_notification.wav",
+      "baselineSha256": "7db2e0a85e47c75f7b64a4b89040f2a3129e2b5e2d03200d9aebea71d6b6572b",
+      "sha256": "c12de900ea477b645d00da2e463e8e2bc4f35c2042168dd3954bf4b6c6ed9cb6",
+      "sizeBytes": 175890
+    }
+  ]
+}

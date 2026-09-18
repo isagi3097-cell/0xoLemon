@@ -1,0 +1,118 @@
+@keyframes progressWave {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.download-wave-card {
+  color: var(--theme-accent-strong, #818cf8);
+  padding: 16px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(10, 15, 29, 0.72);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  min-width: 0;
+  margin: 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.download-wave-card header,
+.download-wave-card footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.download-wave-card header strong {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.download-wave-card header span {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-weight: 700;
+  font-size: 13px;
+  background: linear-gradient(to right, #818cf8, #c084fc, #f472b6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.download-wave-card footer {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+.download-wave-card svg {
+  width: 100%;
+  height: 100px;
+  display: block;
+}
+
+.download-wave-track {
+  height: 6px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.download-wave-track > div {
+  height: 100%;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #6366f1, #a855f7, #ec4899, #6366f1);
+  background-size: 300% 300%;
+  animation: progressWave 4s ease infinite;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.5);
+  transition: width 0.3s ease;
+}
+
+.download-wave-card--store-transfer {
+  width: 100%;
+  margin: 2px 0 0;
+  padding: 10px 12px;
+  gap: 6px;
+  border-radius: 10px;
+  background: rgba(7, 12, 18, 0.68);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.025);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.download-wave-card--store-transfer svg {
+  height: clamp(58px, 7vw, 82px);
+}
+
+.download-wave-card--store-transfer footer {
+  gap: 8px 18px;
+}
+
+.download-wave-card.is-indeterminate .download-wave-track > div {
+  animation: progressWave 4s ease infinite, transfer-wave 1.6s ease-in-out infinite;
+}
+
+@keyframes transfer-wave {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .download-wave-card * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,0 +1,23 @@
+﻿# Normalize line endings to LF for all text files.
+# Ensures sha256 checks in check-gse-package.mjs and check-lua-steamkit-package.mjs
+# are consistent across platforms (prevents Windows CI LF->CRLF conversion).
+* text=auto eol=lf
+
+# Binary assets: no line-ending conversion.
+*.dll binary
+*.exe binary
+*.pyd binary
+*.lib binary
+*.obj binary
+*.zip binary
+*.7z binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.wav binary
+*.mp3 binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary

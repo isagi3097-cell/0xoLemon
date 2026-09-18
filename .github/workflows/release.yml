@@ -1,0 +1,142 @@
+name: Release 0xoLemon
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build signed Windows release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Setup pinned Lua SteamKit SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '8.0.420'
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate tag matches application version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $tagVersion = "${{ github.ref_name }}".TrimStart("v")
+          $config = Get-Content -Raw -Encoding utf8 src-tauri/tauri.conf.json | ConvertFrom-Json
+          if ($config.version -ne $tagVersion) {
+            throw "Tag version $tagVersion does not match tauri.conf.json version $($config.version)"
+          }
+
+      - name: Create HuggingFace config from secret
+        shell: pwsh
+        env:
+          HF_REPOS_JSON: ${{ secrets.HF_REPOS_JSON }}
+        run: |
+          if (-not $env:HF_REPOS_JSON) {
+            throw "Secret HF_REPOS_JSON is not set. Please add it in GitHub repo Settings → Secrets and variables → Actions."
+          }
+          $env:HF_REPOS_JSON | Out-File -Encoding utf8 -NoNewline "src-tauri/huggingface-repos.json"
+          Write-Host "HuggingFace config written from secret."
+
+      - name: Verify HuggingFace config is present
+        shell: pwsh
+        run: |
+          $cfg = Get-Content -Raw "src-tauri/huggingface-repos.json" | ConvertFrom-Json
+          $count = ($cfg.repositories | Where-Object { $_.enabled }).Count
+          Write-Host "HuggingFace repos configured: $count"
+          if ($count -eq 0) {
+            Write-Warning "No enabled HuggingFace repositories found in huggingface-repos.json"
+          }
+
+      - name: Build, sign, and publish release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          OXO_DISCORD_CLIENT_ID: ${{ vars.OXO_DISCORD_CLIENT_ID }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: '0xoLemon ${{ github.ref_name }}'
+          releaseBody: |
+            Signed 0xoLemon launcher release.
+
+            The release includes the Windows installer and `latest.json` manifest used by the in-app updater.
+          releaseDraft: false
+          prerelease: false
+          updaterJsonPreferNsis: true
+          retryAttempts: 3
+          args: --target x86_64-pc-windows-msvc
+
+
+  build-android:
+    name: Build Android APK
+    needs: build-windows
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Web App
+        run: npm run build
+
+      - name: Sync Capacitor
+        working-directory: mobile-apk
+        run: |
+          npm ci
+          npx cap sync android
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build Android APK
+        working-directory: mobile-apk/android
+        run: ./gradlew assembleRelease
+
+      - name: Upload APK Release Asset
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: mobile-apk/android/app/build/outputs/apk/release/app-release-unsigned.apk

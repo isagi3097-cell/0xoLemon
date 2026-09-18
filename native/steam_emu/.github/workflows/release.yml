@@ -1,0 +1,337 @@
+name: "Prepare release"
+
+on:
+  push:
+    tags:
+      - "release-*"
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build'
+        type: string
+        default: 'dev'
+      commit:
+        description: 'Commit SHA to build (leave empty for latest on branch)'
+        type: string
+        default: ''
+      rebuild_ssq:
+        description: 'Force rebuild ssq (ignore cache)'
+        type: boolean
+        default: false
+      rebuild_zlib:
+        description: 'Force rebuild zlib (ignore cache)'
+        type: boolean
+        default: false
+      rebuild_mbedtls:
+        description: 'Force rebuild mbedtls (ignore cache)'
+        type: boolean
+        default: false
+      rebuild_curl:
+        description: 'Force rebuild curl (ignore cache)'
+        type: boolean
+        default: false
+      rebuild_protobuf:
+        description: 'Force rebuild protobuf (ignore cache)'
+        type: boolean
+        default: false
+      rebuild_ingame_overlay:
+        description: 'Force rebuild ingame_overlay (ignore cache)'
+        type: boolean
+        default: false
+      rebuild_opus:
+        description: 'Force rebuild opus (ignore cache)'
+        type: boolean
+        default: false
+      rebuild_portaudio:
+        description: 'Force rebuild portaudio (ignore cache)'
+        type: boolean
+        default: false
+      rebuild_sdl:
+        description: 'Force rebuild sdl (ignore cache)'
+        type: boolean
+        default: false
+      vs_version:
+        description: 'Visual Studio version to build with'
+        type: choice
+        options:
+          - vs2026
+          - vs2022
+        default: 'vs2026'
+
+permissions:
+  contents: "write"
+  actions: "write"
+
+env:
+  THIRD_PARTY_BASE_DIR: "third-party"
+
+jobs:
+  emu-win-all-vs2026:
+    name: "Emu win all (VS2026)"
+    if: ${{ !cancelled() && (inputs.vs_version == '' || inputs.vs_version == 'vs2026') }}
+    uses: "./.github/workflows/emu-build-all-win.yml"
+    with:
+      branch: ${{ inputs.branch || 'dev' }}
+      commit: ${{ inputs.commit || '' }}
+      rebuild_ssq: ${{ inputs.rebuild_ssq || false }}
+      rebuild_zlib: ${{ inputs.rebuild_zlib || false }}
+      rebuild_mbedtls: ${{ inputs.rebuild_mbedtls || false }}
+      rebuild_curl: ${{ inputs.rebuild_curl || false }}
+      rebuild_protobuf: ${{ inputs.rebuild_protobuf || false }}
+      rebuild_ingame_overlay: ${{ inputs.rebuild_ingame_overlay || false }}
+      rebuild_opus: ${{ inputs.rebuild_opus || false }}
+      rebuild_portaudio: ${{ inputs.rebuild_portaudio || false }}
+      rebuild_sdl: ${{ inputs.rebuild_sdl || false }}
+
+  emu-win-all-vs22:
+    name: "Emu win all (VS2022)"
+    if: ${{ !cancelled() && inputs.vs_version == 'vs2022' }}
+    uses: "./.github/workflows/emu-build-all-win-vs22.yml"
+    with:
+      branch: ${{ inputs.branch || 'dev' }}
+      commit: ${{ inputs.commit || '' }}
+      rebuild_ssq: ${{ inputs.rebuild_ssq || false }}
+      rebuild_zlib: ${{ inputs.rebuild_zlib || false }}
+      rebuild_mbedtls: ${{ inputs.rebuild_mbedtls || false }}
+      rebuild_curl: ${{ inputs.rebuild_curl || false }}
+      rebuild_protobuf: ${{ inputs.rebuild_protobuf || false }}
+      rebuild_ingame_overlay: ${{ inputs.rebuild_ingame_overlay || false }}
+      rebuild_opus: ${{ inputs.rebuild_opus || false }}
+      rebuild_portaudio: ${{ inputs.rebuild_portaudio || false }}
+      rebuild_sdl: ${{ inputs.rebuild_sdl || false }}
+
+  emu-win-prep:
+    needs: ["emu-win-all-vs2026", "emu-win-all-vs22"]
+    if: ${{ !cancelled() }}
+    runs-on: "windows-2025-vs2026"
+    steps:
+      # we need branch because it has package scripts
+      - name: "Checkout branch"
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit || inputs.branch || 'dev' }}
+
+      - name: "Capture build commit SHA"
+        id: "build_ref"
+        shell: "bash"
+        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      # on Windows Git will auto change line ending to CRLF, not preferable
+      - name: "Ensure LF line ending"
+        shell: "cmd"
+        working-directory: "${{ github.workspace }}"
+        run: |
+          git config --local core.autocrlf false
+          git config --system core.autocrlf false
+          git config --global core.autocrlf false
+
+      - name: "Clone third-party deps (deps/win)"
+        uses: actions/checkout@v6
+        with:
+          ref: "third-party/deps/win"
+          path: "${{env.THIRD_PARTY_BASE_DIR}}/deps/win"
+
+      # determine VS version used for this run
+      - name: "Set VS version"
+        id: "vs_ver"
+        shell: "bash"
+        run: echo "ver=${{ inputs.vs_version || 'vs2026' }}" >> $GITHUB_OUTPUT
+
+      # download artifacts
+      - name: "Download emu build artifacts (Win)"
+        uses: actions/download-artifact@v8
+        with:
+          path: "build/win"
+          pattern: "emu-win-*-${{ steps.build_ref.outputs.sha }}"
+          merge-multiple: true
+
+      # print files
+      - name: "Print files"
+        shell: "cmd"
+        working-directory: "${{ github.workspace }}"
+        run: |
+          dir /s /b /a:-d build\win
+
+      # package (release mode)
+      - name: "Package build (release)"
+        shell: "cmd"
+        working-directory: "${{ github.workspace }}"
+        run: package_win.bat ${{ steps.vs_ver.outputs.ver }}\release
+
+      # package (debug mode)
+      - name: "Package build (debug)"
+        shell: "cmd"
+        working-directory: "${{ github.workspace }}"
+        run: package_win.bat ${{ steps.vs_ver.outputs.ver }}\debug 1
+
+      # release (debug + release modes) if this is a tag push
+      - name: "Release"
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: "build/package/win/**/*"
+
+      # upload artifacts/packages if this is a manual run
+      - name: "Upload release package"
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: "release-emu-win-release-${{ steps.build_ref.outputs.sha }}"
+          path: "build/package/win/${{ steps.vs_ver.outputs.ver }}/*release*"
+          if-no-files-found: "error"
+          compression-level: 0
+          retention-days: 7
+          overwrite: true
+
+      - name: "Upload debug package"
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: "release-emu-win-debug-${{ steps.build_ref.outputs.sha }}"
+          path: "build/package/win/${{ steps.vs_ver.outputs.ver }}/*debug*"
+          if-no-files-found: "error"
+          compression-level: 0
+          retention-days: 7
+          overwrite: true
+
+      - name: "Delete intermediate build artifacts"
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: "bash"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          repo="${{ github.repository }}"
+          gh api "repos/${repo}/actions/runs/${{ github.run_id }}/artifacts" --paginate \
+            --jq '.artifacts[] | select(.name | test("^(emu-win-|proto-gen-win-)")) | .id' | \
+          while IFS= read -r artifact_id; do
+            gh api -X DELETE "repos/${repo}/actions/artifacts/${artifact_id}" \
+              && echo "Deleted artifact ${artifact_id}" \
+              || echo "Failed to delete artifact ${artifact_id}"
+          done
+
+  emu-linux-all:
+    name: "Emu linux all"
+    if: ${{ !cancelled() }}
+    uses: "./.github/workflows/emu-build-all-linux.yml"
+    with:
+      branch: ${{ inputs.branch || 'dev' }}
+      commit: ${{ inputs.commit || '' }}
+      rebuild_ssq: ${{ inputs.rebuild_ssq || false }}
+      rebuild_zlib: ${{ inputs.rebuild_zlib || false }}
+      rebuild_mbedtls: ${{ inputs.rebuild_mbedtls || false }}
+      rebuild_curl: ${{ inputs.rebuild_curl || false }}
+      rebuild_protobuf: ${{ inputs.rebuild_protobuf || false }}
+      rebuild_ingame_overlay: ${{ inputs.rebuild_ingame_overlay || false }}
+      rebuild_opus: ${{ inputs.rebuild_opus || false }}
+      rebuild_portaudio: ${{ inputs.rebuild_portaudio || false }}
+      rebuild_sdl: ${{ inputs.rebuild_sdl || false }}
+
+  emu-linux-prep:
+    needs: ["emu-linux-all"]
+    runs-on: "ubuntu-24.04"
+    steps:
+      # we need branch because it has package scripts
+      - name: "Checkout branch"
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit || inputs.branch || 'dev' }}
+
+      - name: "Capture build commit SHA"
+        id: "build_ref"
+        shell: "bash"
+        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: "Clone third-party deps (deps/linux)"
+        uses: actions/checkout@v6
+        with:
+          ref: "third-party/deps/linux"
+          path: "${{env.THIRD_PARTY_BASE_DIR}}/deps/linux"
+
+      # download artifacts
+      - name: "Download emu build artifacts (linux)"
+        uses: actions/download-artifact@v8
+        with:
+          path: "build/linux"
+          pattern: "emu-linux-*-${{ steps.build_ref.outputs.sha }}"
+          merge-multiple: true
+
+      # fix folder permissions! not sure why this fails
+      # nested subdirs "build/linux/release" cause permission problems
+      - name: "Give all permissions to repo folder"
+        shell: "bash"
+        working-directory: "${{ github.workspace }}"
+        run: sudo chmod -R 777 "${{ github.workspace }}" && sudo chmod 777 package_linux.sh
+
+      # print files
+      - name: "Print files"
+        shell: "bash"
+        working-directory: "${{ github.workspace }}"
+        run: |
+          ls -la build/linux/*/*
+
+      # downlaod ubuntu packages
+      - name: "Download required Ubuntu packages"
+        shell: "bash"
+        working-directory: "${{ github.workspace }}"
+        run: |
+          sudo apt update || exit 1
+          sudo apt install tar -y || exit 1
+
+      # package (release mode)
+      - name: "Package build (release)"
+        shell: "bash"
+        working-directory: "${{ github.workspace }}"
+        run: ./package_linux.sh gmake/release
+
+      # package (debug mode)
+      - name: "Package build (debug)"
+        shell: "bash"
+        working-directory: "${{ github.workspace }}"
+        run: ./package_linux.sh gmake/debug 1
+
+      # release (debug + release modes) if this is a tag push
+      - name: "Release"
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: "build/package/linux/**/*"
+
+      # upload artifacts/packages if this is a manual run
+      - name: "Upload release package"
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: "release-emu-linux-release-${{ steps.build_ref.outputs.sha }}"
+          path: "build/package/linux/gmake/*release*"
+          if-no-files-found: "error"
+          compression-level: 0
+          retention-days: 7
+          overwrite: true
+
+      - name: "Upload debug package"
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: "release-emu-linux-debug-${{ steps.build_ref.outputs.sha }}"
+          path: "build/package/linux/gmake/*debug*"
+          if-no-files-found: "error"
+          compression-level: 0
+          retention-days: 7
+          overwrite: true
+
+      - name: "Delete intermediate build artifacts"
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: "bash"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          repo="${{ github.repository }}"
+          gh api "repos/${repo}/actions/runs/${{ github.run_id }}/artifacts" --paginate \
+            --jq '.artifacts[] | select(.name | test("^(emu-linux-|proto-gen-linux-)")) | .id' | \
+          while IFS= read -r artifact_id; do
+            gh api -X DELETE "repos/${repo}/actions/artifacts/${artifact_id}" \
+              && echo "Deleted artifact ${artifact_id}" \
+              || echo "Failed to delete artifact ${artifact_id}"
+          done
