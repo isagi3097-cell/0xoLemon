@@ -503,6 +503,26 @@
 .depot-tag.is-other-os {
   background: rgba(245, 158, 11, 0.15);
   color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+/* Per-platform tinting so Windows/macOS/Linux are distinguishable at a glance. */
+.depot-tag.is-os-windows {
+  background: rgba(59, 130, 246, 0.16);
+  color: #7cb3ff;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.depot-tag.is-os-macos {
+  background: rgba(226, 232, 240, 0.14);
+  color: #e2e8f0;
+  border: 1px solid rgba(226, 232, 240, 0.28);
+}
+
+.depot-tag.is-os-linux {
+  background: rgba(250, 204, 21, 0.16);
+  color: #facc15;
+  border: 1px solid rgba(250, 204, 21, 0.3);
 }
 
 .depot-tag.is-shared {

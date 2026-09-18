@@ -16,6 +16,7 @@ import {
   ShieldAlert,
 } from 'lucide-react'
 import { formatBytes } from '../lib/format'
+import { parseDepotOsList, isNonWindowsDepot } from '../lib/depotOs'
 import type { SteamAppDepotInfo, DiskSpaceInfo, SteamVersionHistoryItem } from '../types'
 import './DepotInstallModal.css'
 
@@ -501,7 +502,8 @@ export function DepotInstallModal({
             <div className="depot-modal-depots-list">
               {filteredDepots.map((depot) => {
                 const isSelected = selectedDepotIds.has(depot.depotId)
-                const isOtherOs = depot.os && !depot.os.toLowerCase().includes('windows')
+                const isOtherOs = isNonWindowsDepot(depot.os)
+                const osTags = parseDepotOsList(depot.os)
 
                 return (
                   <label
@@ -527,11 +529,15 @@ export function DepotInstallModal({
                             <Languages size={11} /> {depot.language}
                           </span>
                         )}
-                        {depot.os && (
-                          <span className={`depot-tag ${isOtherOs ? 'is-other-os' : 'is-os'}`}>
-                            {depot.os}
+                        {osTags.map((tag) => (
+                          <span
+                            key={tag.kind + tag.raw}
+                            className={`depot-tag ${isOtherOs ? 'is-other-os' : 'is-os'} is-os-${tag.kind}`}
+                            title={depot.os}
+                          >
+                            {tag.label}
                           </span>
-                        )}
+                        ))}
                         {depot.isShared && (
                           <span className="depot-tag is-shared">Shared</span>
                         )}

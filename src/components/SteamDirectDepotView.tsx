@@ -66,6 +66,7 @@ import {
   type SteamGlobalAchievement,
 } from '../lib/useSteamApi'
 import { DepotInstallModal } from './DepotInstallModal'
+import { depotMatchesOsFilter } from '../lib/depotOs'
 import { HubcapKeyModal } from './HubcapKeyModal'
 
 type SettledResult<T> = PromiseSettledResult<T>
@@ -1944,11 +1945,10 @@ export function SteamDirectDepotView({ defaultLibraryRoot, initialAppId }: Steam
   const filteredDepots = useMemo(() => {
     if (!appInfo) return []
     return appInfo.depots.filter((d) => {
-      // OS filter
-      if (filterOs !== 'all') {
-        if (d.os && !d.os.toLowerCase().includes(filterOs)) {
-          return false
-        }
+      // OS filter — parses Steam's comma separated oslist so macOS/Linux
+      // tokens match exactly instead of relying on substring luck.
+      if (!depotMatchesOsFilter(d.os, filterOs)) {
+        return false
       }
       // DLC / Type filter
       if (filterType === 'dlc' && !d.dlcAppid) {
