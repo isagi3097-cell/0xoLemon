@@ -179,10 +179,11 @@ src/vendor/gse-uc-setup/**/*.obj
 src-tauri/resources/gse-uc/*.tmp
 # Release payload (heavy binaries) — shipped via GitHub Releases, not git.
 # Keeps this deploy repo light; re-add individual files here if needed.
+# LuaSteamKit and GSE core are build REQUIRED inputs: the beforeBuildCommand
+# verifies them (scripts/check-lua-steamkit-package.mjs,
+# scripts/check-gse-package.mjs) and fails the build if Git would omit them.
+# Do NOT add these two back to the ignore list.
 src-tauri/binaries/
-src-tauri/resources/gse-uc/bin/
-src-tauri/resources/gse-uc/embedded/
 src-tauri/resources/tools/
-src-tauri/resources/lua-steamkit/
 src-tauri/resources/steam_hooks/
 src-tauri/resources/cloud_redirect/engine/

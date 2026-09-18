@@ -3,7 +3,7 @@
  *
  * Source of truth: game-id-mapping.json in the steam-metadata GitHub repo.
  * CDN URL (no auth, no rate limit):
- *   https://raw.githubusercontent.com/dangjimmy33-dotcom/steam-metadata/main/game-id-mapping.json
+ *   https://raw.githubusercontent.com/isagi3097-cell/steam-metadata/main/game-id-mapping.json
  *
  * The file is a flat JSON object: { [gameId: string]: number }
  * Admin updates it by uploading a new version to the repo root — no code change needed.
@@ -12,7 +12,7 @@
 import { useState, useEffect } from 'react'
 
 const MAPPING_URL =
-  'https://raw.githubusercontent.com/dangjimmy33-dotcom/steam-metadata/main/game-id-mapping.json'
+  'https://raw.githubusercontent.com/isagi3097-cell/steam-metadata/main/game-id-mapping.json'
 
 // ── Module-level singleton ──────────────────────────────────────────────────
 

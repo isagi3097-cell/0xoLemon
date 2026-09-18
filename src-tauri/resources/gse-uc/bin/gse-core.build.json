@@ -1,0 +1,6 @@
+﻿{
+    "sourceHash":  "419961567de95d6639f73ced6d269b3b34ca43686b6bee46ecc870414adde067",
+    "source":  "src/vendor/gse-uc-setup/gse_autosetup",
+    "bridge":  "src-tauri/gse-core/gse_core_bridge.py",
+    "builtAt":  "2026-09-18T05:49:50.3207519Z"
+}
