@@ -5,6 +5,27 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { globSync } from 'tinyglobby';
 
+// Extensions treated as binary by git (matches .gitattributes binary overrides).
+// All other files are treated as text and normalized CRLF→LF before hashing,
+// so the sha256 always matches what git stores with eol=lf regardless of the
+// local core.autocrlf setting.
+const BINARY_EXTS = new Set([
+  '.dll', '.exe', '.pyd', '.zip', '.7z', '.rar',
+  '.png', '.jpg', '.jpeg', '.gif', '.ico',
+  '.woff', '.woff2', '.ttf', '.otf',
+  '.db', '.dat', '.ndb', '.ldb', '.wav', '.mp3', '.mp4',
+  '.a3x', '.a3xenc', // AutoIt compiled binary
+]);
+
+function hashBytes(filePath, rawBytes) {
+  let bytes = rawBytes;
+  if (!BINARY_EXTS.has(path.extname(filePath).toLowerCase()) && rawBytes.indexOf(13) !== -1) {
+    const str = rawBytes.toString('binary').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    bytes = Buffer.from(str, 'binary');
+  }
+  return { sha256: crypto.createHash('sha256').update(bytes).digest('hex'), sizeBytes: bytes.length };
+}
+
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tauri = path.join(repo, 'src-tauri');
 const root = path.join(tauri, 'resources/gse-uc');
@@ -19,10 +40,11 @@ for (const file of selected) {
   const relative = `resources/gse-uc/${file.relativePath}`;
   const absolute = path.join(tauri, relative);
   if (!bundled.has(relative)) { errors.push(`Not bundled: ${relative}`); continue; }
-  const bytes = fs.readFileSync(absolute);
+  const rawBytes = fs.readFileSync(absolute);
   const override = overrides.find(item => item.path === file.relativePath && item.baselineSha256 === file.sha256);
   const expected = override || file;
-  if (bytes.length !== expected.sizeBytes || crypto.createHash('sha256').update(bytes).digest('hex') !== expected.sha256) {
+  const { sha256, sizeBytes } = hashBytes(absolute, rawBytes);
+  if (sizeBytes !== expected.sizeBytes || sha256 !== expected.sha256) {
     errors.push(`Manifest mismatch: ${relative}`);
   }
 }
