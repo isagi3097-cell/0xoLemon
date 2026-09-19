@@ -190,8 +190,7 @@ jobs:
         run: |
           $resourceRoot = Join-Path $PWD "src-tauri/resources"
           $requiredRoots = @(
-            "cloud_redirect", "emu", "gse-uc", "lightning", "lua-steamkit",
-            "managed-runtime", "redist", "tools"
+            "emu", "gse-uc", "lightning", "managed-runtime", "tools"
           )
           foreach ($root in $requiredRoots) {
             $path = Join-Path $resourceRoot $root
