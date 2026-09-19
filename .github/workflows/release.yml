@@ -136,8 +136,11 @@ jobs:
         shell: pwsh
         run: |
           $src  = Join-Path $env:RUNNER_TEMP "ddmod-src"
-          git clone --depth 1 https://github.com/SteamAutoCracks/DepotDownloaderMod.git $src
+          git clone https://github.com/SteamAutoCracks/DepotDownloaderMod.git $src
           if ($LASTEXITCODE -ne 0) { throw "git clone DepotDownloaderMod failed" }
+          Push-Location $src
+          git checkout 906a40987751e0c3425b27f5fadf049acdb89e0e
+          Pop-Location
           $proj = Join-Path $src "DepotDownloader/DepotDownloaderMod.csproj"
           $out  = Join-Path $env:RUNNER_TEMP "ddmod-publish"
           dotnet publish $proj -c Release --self-contained true -r win-x64 -o $out /p:PublishSingleFile=true /p:ApplicationIcon="" /p:TreatWarningsAsErrors=false
