@@ -233,6 +233,20 @@ jobs:
           retryAttempts: 3
           args: --target x86_64-pc-windows-msvc
 
+      - name: Verify packaged DepotDownloaderMod
+        shell: pwsh
+        run: |
+          $matches = @(Get-ChildItem -Path "$PWD/src-tauri/target" -Recurse -File -Filter "DepotDownloaderMod-x86_64-pc-windows-msvc.exe" -ErrorAction SilentlyContinue)
+          if ($matches.Count -eq 0) {
+            throw "DepotDownloaderMod-x86_64-pc-windows-msvc.exe is absent from the packaged target output"
+          }
+          foreach ($match in $matches) {
+            if ($match.Length -lt 10MB) {
+              throw "Packaged DepotDownloaderMod is unexpectedly small: $($match.FullName) ($($match.Length) bytes)"
+            }
+            Write-Host "Packaged DepotDownloaderMod verified: $($match.FullName) ($($match.Length) bytes)"
+          }
+
       - name: Verify packaged resource payload
         shell: pwsh
         run: |
