@@ -132,6 +132,85 @@ jobs:
           }
           Write-Host "Staged native Steam hook resources: $($required -join ', ')"
 
+      - name: Stage bundled DepotDownloaderMod
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $repo = "SteamAutoCracks/DepotDownloaderMod"
+          $headers = @{
+            Accept = "application/vnd.github+json"
+            "User-Agent" = "0xoLemon-launcher-release"
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+          }
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest" -Headers $headers
+          $asset = @($release.assets | Where-Object { $_.name -ieq "Release.rar" }) | Select-Object -First 1
+          if (-not $asset) {
+            throw "No Release.rar asset found in latest $repo release $($release.tag_name)"
+          }
+
+          $archive = Join-Path $env:RUNNER_TEMP $asset.name
+          Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile $archive
+          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+            throw "DepotDownloaderMod archive download failed: $archive"
+          }
+
+          $extract = Join-Path $env:RUNNER_TEMP "depot-downloader-mod-extracted"
+          if (Test-Path -LiteralPath $extract) {
+            Remove-Item -LiteralPath $extract -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path $extract | Out-Null
+
+          $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source
+          if (-not $sevenZip) {
+            $sevenZip = Join-Path ${env:ProgramFiles} "7-Zip/7z.exe"
+          }
+          if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
+            throw "7-Zip was not found on the GitHub runner"
+          }
+          & $sevenZip x $archive "-o$extract" -y
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to extract DepotDownloaderMod release $($release.tag_name)"
+          }
+
+          $entrypoint = Get-ChildItem -LiteralPath $extract -Recurse -File -Filter "DepotDownloaderMod.exe" | Select-Object -First 1
+          if (-not $entrypoint) {
+            throw "DepotDownloaderMod.exe was not found in $($asset.name)"
+          }
+          $destination = Join-Path $PWD "src-tauri/binaries/DepotDownloaderMod-x86_64-pc-windows-msvc.exe"
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+          Copy-Item -LiteralPath $entrypoint.FullName -Destination $destination -Force
+          if (-not (Test-Path -LiteralPath $destination -PathType Leaf)) {
+            throw "Failed to stage DepotDownloaderMod: $destination"
+          }
+          Write-Host "Staged DepotDownloaderMod from $repo release $($release.tag_name): $destination"
+
+      - name: Validate release resource inputs
+        shell: pwsh
+        run: |
+          $resourceRoot = Join-Path $PWD "src-tauri/resources"
+          $requiredRoots = @(
+            "cloud_redirect", "emu", "gse-uc", "lightning", "lua-steamkit",
+            "managed-runtime", "redist", "tools"
+          )
+          foreach ($root in $requiredRoots) {
+            $path = Join-Path $resourceRoot $root
+            if (-not (Test-Path -LiteralPath $path -PathType Container)) {
+              throw "Required resource root is missing: $path"
+            }
+            $files = @(Get-ChildItem -LiteralPath $path -Recurse -File)
+            if ($files.Count -eq 0) {
+              throw "Required resource root is empty: $path"
+            }
+            Write-Host ("Validated {0}: {1} files" -f $root, $files.Count)
+          }
+
+          $binary = Join-Path $PWD "src-tauri/binaries/DepotDownloaderMod-x86_64-pc-windows-msvc.exe"
+          if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
+            throw "Required bundled binary is missing: $binary"
+          }
+          Write-Host "Validated bundled binary: $binary"
+
       - name: Build, sign, and publish release
         uses: tauri-apps/tauri-action@v1
         env:
@@ -143,7 +222,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: '0xoLemon ${{ github.ref_name }}'
           releaseBody: |
-            0xoLemon v2.0.67
+            0xoLemon v2.0.68
 
             - Uses the published 0xoLemon plugin package instead of compiling native hooks in launcher CI.
             - Validates and stages all four required hook DLLs before the Tauri build.
