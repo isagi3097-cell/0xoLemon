@@ -1,0 +1,932 @@
+{
+   "4704690":{
+      "name":"MECCHA CHAMELEON",
+      "nombre_fix":"MECCHA CHAMELEON - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/4704690/8c199d9c704956104caa7de32cccef828b3cf3d0/capsule_616x353.jpg?t=1781108224"
+   },
+   "2483190":{
+      "name":"Forza Horizon 6",
+      "nombre_fix":"Forza Horizon 6 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2483190/e8e49b907c171a8036e9430eadf13306a085533d/capsule_616x353.jpg?t=1778870245"
+   },
+   "1962700":{
+      "name":"Subnautica 2",
+      "nombre_fix":"Subnautica 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1962700/ceed43f5d774d84a5578eccaaec6842cb9591667/capsule_616x353.jpg?t=1778771924"
+   },
+   "3892270":{
+      "name":"Gamble With Your Friends",
+      "nombre_fix":"Gamble With Your Friends - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3892270/78a9deef0ef784825518781a668724e219099d1f/capsule_616x353.jpg?t=1778274309"
+   },
+   "1715280":{
+      "name":"AirportSim",
+      "nombre_fix":"AirportSim - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1715280/capsule_616x353.jpg?t=1729256349"
+   },
+   "1540210":{
+      "name":"Arizona Sunshine® 2",
+      "nombre_fix":"Arizona Sunshine® 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1540210/capsule_616x353.jpg?t=1741616398"
+   },
+   "244210":{
+      "name":"Assetto Corsa",
+      "nombre_fix":"Assetto Corsa - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/244210/9d5338914376791adcf247efdc3cbd2135deb804/capsule_616x353.jpg?t=1754985171"
+   },
+   "3558400":{
+      "name":"Backseat Drivers",
+      "nombre_fix":"Backseat Drivers - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3558400/ccca6ae58e6d817e350284dd9df932713261910b/capsule_616x353.jpg?t=1760040570"
+   },
+   "552100":{
+      "name":"Brick Rigs",
+      "nombre_fix":"Brick Rigs - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/552100/capsule_616x353.jpg?t=1760697291"
+   },
+   "440900":{
+      "name":"Conan Exiles",
+      "nombre_fix":"Conan Exiles - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/440900/b7c8d9df66918b538912a98e0ab5c5ef1deb7496/capsule_616x353.jpg?t=1759761326"
+   },
+   "2592220":{
+      "name":"CUFFBUST",
+      "nombre_fix":"CUFFBUST - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2592220/capsule_616x353.jpg?t=1760535283"
+   },
+   "2208570":{
+      "name":"Dark Hours",
+      "nombre_fix":"Dark Hours - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2208570/00df7d4efc5238d49c6fd07d74443ffc1b479cf2/capsule_616x353.jpg?t=1761240047"
+   },
+   "556050":{
+      "name":"Hyper Jam",
+      "nombre_fix":"Hyper Jam - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/556050/capsule_616x353.jpg?t=1667005878"
+   },
+   "1426210":{
+      "name":"It Takes Two",
+      "nombre_fix":"It Takes Two - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1426210/capsule_616x353.jpg?t=1749142249"
+   },
+   "261550":{
+      "name":"Mount & Blade II: Bannerlord",
+      "nombre_fix":"Mount & Blade II: Bannerlord - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/261550/capsule_616x353.jpg?t=1751538727"
+   },
+   "967050":{
+      "name":"Pacify",
+      "nombre_fix":"Pacify - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/967050/capsule_616x353.jpg?t=1737656285"
+   },
+   "1260320":{
+      "name":"Party Animals",
+      "nombre_fix":"Party Animals - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1260320/capsule_616x353.jpg?t=1758512007"
+   },
+   "2968420":{
+      "name":"PowerWash Simulator 2",
+      "nombre_fix":"PowerWash Simulator 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2968420/374fc7a0419c7361cda3ae7fa6fe4e383f206e5d/capsule_616x353.jpg?t=1761227779"
+   },
+   "3949040":{
+      "name":"RV There Yet?",
+      "nombre_fix":"RV There Yet? - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3949040/fc6856c47b9c695c24a2e64c60b619d7762b9717/capsule_616x353.jpg?t=1761050176"
+   },
+   "413150":{
+      "name":"Stardew Valley",
+      "nombre_fix":"Stardew Valley - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/413150/capsule_616x353.jpg?t=1754692865"
+   },
+   "573090":{
+      "name":"Stormworks: Build and Rescue",
+      "nombre_fix":"Stormworks: Build and Rescue - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/573090/capsule_616x353.jpg?t=1754155514"
+   },
+   "2670630":{
+      "name":"Supermarket Simulator",
+      "nombre_fix":"Supermarket Simulator - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2670630/88bc3b48af8c5136e59e7d63cfbc37d14fad64f7/capsule_616x353.jpg?t=1760015194"
+   },
+   "1604030":{
+      "name":"V Rising",
+      "nombre_fix":"V Rising - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1604030/a141ab624e5c7948ae9faf5def7a47c4c2d77056/capsule_616x353.jpg?t=1756736833"
+   },
+   "1911610":{
+      "name":"Windblown",
+      "nombre_fix":"Windblown - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1911610/98bef28ff8cf3702ed9e7e4f501131f352a80093/capsule_616x353.jpg?t=1761236309"
+   },
+   "2212330":{
+      "name":"Your Only Move Is HUSTLE",
+      "nombre_fix":"Your Only Move Is HUSTLE - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2212330/capsule_616x353.jpg?t=1702425086"
+   },
+   "2780980":{
+      "name":"LOCKDOWN Protocol",
+      "nombre_fix":"LOCKDOWN Protocol - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2780980/capsule_616x353.jpg?t=1721725451"
+   },
+   "1904480":{
+      "name":"Absolum",
+      "nombre_fix":"Absolum - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1904480/33ade00552879948450968586802d222b31e7af5/capsule_616x353.jpg?t=1760022735"
+   },
+   "3003460":{
+      "name":"Bang Bang Barrage",
+      "nombre_fix":"Bang Bang Barrage - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3003460/capsule_616x353.jpg?t=1759124049"
+   },
+   "400750":{
+      "name":"Call to Arms - Gates of Hell: Ostfront",
+      "nombre_fix":"Call to Arms - Gates of Hell: Ostfront - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/400750/794866e0a3ebd7ef152ba18e12843cd9cdea8c28/capsule_616x353.jpg?t=1755264722"
+   },
+   "641320":{
+      "name":"Cooking Simulator",
+      "nombre_fix":"Cooking Simulator - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/641320/f44e4bd881be913d85707b142395af055ce18fe9/capsule_616x353.jpg?t=1759312320"
+   },
+   "1869500":{
+      "name":"Daimon Blades",
+      "nombre_fix":"Daimon Blades - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1869500/6773ffd73303b5342e8000fcd0795a6bf9306713/capsule_616x353.jpg?t=1760028475"
+   },
+   "1200770":{
+      "name":"Deathground",
+      "nombre_fix":"Deathground - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1200770/22eeb471fa4303174494b9de8daeded34ce5bb0f/capsule_616x353.jpg?t=1760044663"
+   },
+   "2916430":{
+      "name":"Fast Food Simulator",
+      "nombre_fix":"Fast Food Simulator - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2916430/capsule_616x353.jpg?t=1733918579"
+   },
+   "394360":{
+      "name":"Hearts of Iron IV",
+      "nombre_fix":"Hearts of Iron IV - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/394360/capsule_616x353.jpg?t=1759231436"
+   },
+   "1538550":{
+      "name":"LEGO® Voyagers",
+      "nombre_fix":"LEGO® Voyagers - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1538550/55579aa5b427b395fe61eafbb023ccfbe13111c5/capsule_616x353.jpg?t=1757941197"
+   },
+   "3097560":{
+      "name":"Liar's Bar",
+      "nombre_fix":"Liar's Bar - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3097560/caada793e3ba27c5c9775c8849d848c637f46afd/capsule_616x353.jpg?t=1750969308"
+   },
+   "2009350":{
+      "name":"Out of Ore",
+      "nombre_fix":"Out of Ore - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2009350/834453ec76820de720f7c323a839f282385a67ab/capsule_616x353.jpg?t=1745597964"
+   },
+   "1282100":{
+      "name":"Remnant II",
+      "nombre_fix":"Remnant II - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1282100/capsule_616x353.jpg?t=1758242470"
+   },
+   "1557740":{
+      "name":"ROUNDS",
+      "nombre_fix":"ROUNDS - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1557740/capsule_616x353.jpg?t=1759328419"
+   },
+   "674940":{
+      "name":"Stick Fight: The Game",
+      "nombre_fix":"Stick Fight: The Game - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/674940/capsule_616x353.jpg?t=1730715399"
+   },
+   "1392860":{
+      "name":"Little Nightmares III",
+      "nombre_fix":"Little Nightmares III - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1392860/fdc6c7f7f4edef951043c52db24592334b10c76a/capsule_616x353.jpg?t=1760048425"
+   },
+   "427410":{
+      "name":"Abiotic Factor",
+      "nombre_fix":"Abiotic Factor - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/427410/ea0a048c538cabb9391f2c4f12a8939123f6d0a5/capsule_616x353.jpg?t=1759166018"
+   },
+   "2141730":{
+      "name":"Backrooms: Escape Together",
+      "nombre_fix":"Backrooms: Escape Together - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2141730/512f1323feb843c8cc3a67e3f6f23290a9f8ecd6/capsule_616x353.jpg?t=1758244961"
+   },
+   "729040":{
+      "name":"Borderlands GOTY Enhanced",
+      "nombre_fix":"Borderlands GOTY Enhanced - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/729040/capsule_616x353.jpg?t=1750080828"
+   },
+   "49520":{
+      "name":"Borderlands 2",
+      "nombre_fix":"Borderlands 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/49520/a31378d171ddc282073952ada2b9514668f82106/capsule_616x353.jpg?t=1751931279"
+   },
+   "261640":{
+      "name":"Borderlands: The Pre-Sequel",
+      "nombre_fix":"Borderlands: The Pre-Sequel - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/261640/capsule_616x353.jpg?t=1750081341"
+   },
+   "397540":{
+      "name":"Borderlands 3",
+      "nombre_fix":"Borderlands 3 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/397540/capsule_616x353.jpg?t=1750802377"
+   },
+   "2933080":{
+      "name":"Crime Boss: Rockay City",
+      "nombre_fix":"Crime Boss: Rockay City - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2933080/dd0f5b3b52637aa6e3f924dbb90d7938239f9520/capsule_616x353.jpg?t=1758877805"
+   },
+   "1274570":{
+      "name":"DEVOUR",
+      "nombre_fix":"DEVOUR - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1274570/capsule_616x353.jpg?t=1743335491"
+   },
+   "678950":{
+      "name":"DRAGON BALL FighterZ",
+      "nombre_fix":"DRAGON BALL FighterZ - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/678950/capsule_616x353.jpg?t=1733508969"
+   },
+   "1943950":{
+      "name":"Escape the Backrooms",
+      "nombre_fix":"Escape the Backrooms - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1943950/6d97c7e6d9dad547c3a46c580a5db89e3c796144/capsule_616x353.jpg?t=1758195724"
+   },
+   "1757300":{
+      "name":"Jump Space",
+      "nombre_fix":"Jump Space - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1757300/a008e9002a04ce87c85f0e042054b50361a81e91/capsule_616x353.jpg?t=1758713482"
+   },
+   "1966720":{
+      "name":"Lethal Company",
+      "nombre_fix":"Lethal Company - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1966720/capsule_616x353.jpg?t=1750273815"
+   },
+   "728880":{
+      "name":"Overcooked! 2",
+      "nombre_fix":"Overcooked! 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/728880/capsule_616x353.jpg?t=1758210340"
+   },
+   "2695940":{
+      "name":"PANICORE",
+      "nombre_fix":"PANICORE - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2695940/19b04c20b8b8c4df6c3b9a2ce4fd441ec25c08a8/capsule_616x353.jpg?t=1747322023"
+   },
+   "246620":{
+      "name":"Plague Inc: Evolved",
+      "nombre_fix":"Plague Inc: Evolved - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/246620/capsule_616x353.jpg?t=1758815671"
+   },
+   "617290":{
+      "name":"Remnant: From the Ashes",
+      "nombre_fix":"Remnant: From the Ashes - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/617290/capsule_616x353.jpg?t=1758242004"
+   },
+   "1650010":{
+      "name":"RIDE 5",
+      "nombre_fix":"RIDE 5 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1650010/capsule_616x353.jpg?t=1743007038"
+   },
+   "387990":{
+      "name":"Scrap Mechanic",
+      "nombre_fix":"Scrap Mechanic - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/387990/capsule_616x353.jpg?t=1727183889"
+   },
+   "250900":{
+      "name":"The Binding of Isaac: Rebirth",
+      "nombre_fix":"The Binding of Isaac: Rebirth - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/250900/capsule_616x353.jpg?t=1731977365"
+   },
+   "2828860":{
+      "name":"The Forever Winter",
+      "nombre_fix":"The Forever Winter - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2828860/af3202ee767ae0e1bbab199663b9e1099a11be91/capsule_616x353.jpg?t=1757579547"
+   },
+   "2976900":{
+      "name":"Unpossess",
+      "nombre_fix":"Unpossess - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2976900/db61a11da4e17fc2979fa829605be0a9a306e09a/capsule_616x353.jpg?t=1757099127"
+   },
+   "3008130":{
+      "name":"Dying Light: The Beast",
+      "nombre_fix":"Dying Light: The Beast - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3008130/b5944c43d563d780614d961ee859f7ce1248c9fa/capsule_616x353.jpg?t=1758212357"
+   },
+   "1721110":{
+      "name":"Abyssus",
+      "nombre_fix":"Abyssus - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1721110/c8f4bb314508824f54e12973b3ff4cac7c155aef/capsule_616x353.jpg?t=1756285045"
+   },
+   "945360":{
+      "name":"Among Us",
+      "nombre_fix":"Among Us - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/945360/capsule_616x353.jpg?t=1757444903"
+   },
+   "3060170":{
+      "name":"Chained in the Backrooms",
+      "nombre_fix":"Chained in the Backrooms - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3060170/6fac8457a47931a6c5e8e93aca1a2b779d612165/capsule_616x353.jpg?t=1751031312"
+   },
+   "1158160":{
+      "name":"Coral Island",
+      "nombre_fix":"Coral Island - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1158160/510f5cd946c40e220b27a6c537c026ab70eb0a25/capsule_616x353.jpg?t=1755197548"
+   },
+   "1929610":{
+      "name":"Demonologist",
+      "nombre_fix":"Demonologist - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1929610/capsule_616x353.jpg?t=1751279240"
+   },
+   "427520":{
+      "name":"Factorio",
+      "nombre_fix":"Factorio - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/427520/capsule_616x353.jpg?t=1730307306"
+   },
+   "1151340":{
+      "name":"Fallout 76",
+      "nombre_fix":"Fallout 76 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1151340/e201d057ed4e1d6e1496cfd0f104d04d20f3fc69/capsule_616x353.jpg?t=1756832490"
+   },
+   "2523720":{
+      "name":"Gears of War: Reloaded",
+      "nombre_fix":"Gears of War: Reloaded - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2523720/779c1934da3b39c307d91195ff764502f2ce1063/capsule_616x353.jpg?t=1757024702"
+   },
+   "2215430":{
+      "name":"Ghost of Tsushima DIRECTOR'S CUT",
+      "nombre_fix":"Ghost of Tsushima DIRECTOR'S CUT - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2215430/capsule_616x353.jpg?t=1750948552"
+   },
+   "477160":{
+      "name":"Human Fall Flat",
+      "nombre_fix":"Human Fall Flat - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/477160/7d70a1c0d0f748b169ceed8ef6c6b1afe8caf269/capsule_616x353.jpg?t=1756985755"
+   },
+   "2456420":{
+      "name":"HUNTER×HUNTER NEN×IMPACT",
+      "nombre_fix":"HUNTER×HUNTER NEN×IMPACT - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2456420/capsule_616x353.jpg?t=1752725510"
+   },
+   "1001270":{
+      "name":"Kebab Chefs! - Restaurant Simulator",
+      "nombre_fix":"Kebab Chefs! - Restaurant Simulator - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1001270/7fb021fa800d22eaaee601f57a285b7d75cbffb4/capsule_616x353.jpg?t=1754673197"
+   },
+   "582010":{
+      "name":"Monster Hunter: World",
+      "nombre_fix":"Monster Hunter: World - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/582010/capsule_616x353.jpg?t=1734656748"
+   },
+   "495140":{
+      "name":"NARUTO: Ultimate Ninja STORM",
+      "nombre_fix":"NARUTO: Ultimate Ninja STORM - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/495140/capsule_616x353.jpg?t=1701305352"
+   },
+   "275850":{
+      "name":"No Man's Sky",
+      "nombre_fix":"No Man's Sky - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/275850/d3d1550cec60e9d6b3d1ec00dbb6190e314683b2/capsule_616x353.jpg?t=17563231795"
+   },
+   "1913370":{
+      "name":"OPERATOR",
+      "nombre_fix":"OPERATOR - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1913370/d4fd109d043ffede976f0f42a7ab07a34695c8e6/capsule_616x353.jpg?t=1750774478"
+   },
+   "632360":{
+      "name":"Risk of Rain 2",
+      "nombre_fix":"Risk of Rain 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/632360/capsule_616x353.jpg?t=1751308044"
+   },
+   "312660":{
+      "name":"Sniper Elite 4",
+      "nombre_fix":"Sniper Elite 4 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/312660/capsule_616x353.jpg?t=1681207252"
+   },
+   "1329500":{
+      "name":"SpiderHeck",
+      "nombre_fix":"SpiderHeck - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1329500/capsule_616x353.jpg?t=1752529495"
+   },
+   "105600":{
+      "name":"Terraria",
+      "nombre_fix":"Terraria - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/105600/capsule_616x353.jpg?t=1731252354"
+   },
+   "1017180":{
+      "name":"The Long Drive",
+      "nombre_fix":"The Long Drive - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1017180/capsule_616x353.jpg?t=1751568928"
+   },
+   "585420":{
+      "name":"Trailmakers",
+      "nombre_fix":"Trailmakers - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/585420/9363a927b4f1329597e90122f51f2ce1a53801cc/capsule_616x353.jpg?t=1750164940"
+   },
+   "892970":{
+      "name":"Valheim",
+      "nombre_fix":"Valheim - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/892970/36a52fe644b589a70b05e476a4b319a6d9e02cfe/capsule_616x353.jpg?t=1757486247"
+   },
+   "3146520":{
+      "name":"WEBFISHING",
+      "nombre_fix":"WEBFISHING - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3146520/capsule_616x353.jpg?t=1728673229"
+   },
+   "1619310":{
+      "name":"SWAT Commander",
+      "nombre_fix":"SWAT Commander - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1619310/97c64d1d4327f67f54e4790fafdcfa9333283c3b/capsule_616x353.jpg?t=1754990909"
+   },
+   "3484300":{
+      "name":"DREADZONE",
+      "nombre_fix":"DREADZONE - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3484300/8aab06c561cbd54582c51d058473a6158c90aec7/capsule_616x353.jpg?t=1753565904"
+   },
+   "3077390":{
+      "name":"MotoGP 25",
+      "nombre_fix":"MotoGP 25 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3077390/32cd6f7dea139a91ee036565c41481eb751cf651/capsule_616x353.jpg?t=1753692631"
+   },
+   "2943670":{
+      "name":"Night Club Simulator",
+      "nombre_fix":"Night Club Simulator - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2943670/aea658aeb4a6115bdaa325c87672fdd1f86f8dcd/capsule_616x353.jpg?t=1753903448"
+   },
+   "2661300":{
+      "name":"Grounded 2",
+      "nombre_fix":"Grounded 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2661300/ea6e08dcd53fc579bfa710fe1dcef90765e2ba91/capsule_616x353.jpg?t=1753821224"
+   },
+   "3716600":{
+      "name":"Mage Arena",
+      "nombre_fix":"Mage Arena - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3716600/e245a7cf3cadf5331c1155b6c082a38fe01a2ae9/capsule_616x353.jpg?t=1753574038"
+   },
+   "1144200":{
+      "name":"Ready or Not",
+      "nombre_fix":"Ready or Not - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1144200/capsule_616x353.jpg?t=1752563001"
+   },
+   "3164500":{
+      "name":"Schedule I",
+      "nombre_fix":"Schedule I - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3164500/86e34f84a874cf1853c6b45b7b5948694c7794cb/capsule_616x353.jpg?t=1751926051"
+   },
+   "3527290":{
+      "name":"PEAK",
+      "nombre_fix":"PEAK - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3527290/c6791f0f1b7b29f6304e283ac7a2cabc27c7eb0d/capsule_616x353.jpg?t=1753331942"
+   },
+   "1245620":{
+      "name":"ELDEN RING",
+      "nombre_fix":"ELDEN RING - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1245620/capsule_616x353.jpg?t=1748630546"
+   },
+   "2622380":{
+      "name":"ELDEN RING NIGHTREIGN",
+      "nombre_fix":"ELDEN RING NIGHTREIGN - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2622380/800a6d64a1685c303bf985f084fbf5c08ac2ae5c/capsule_616x353.jpg?t=1753372926"
+   },
+   "2737070":{
+      "name":"Crime Simulator",
+      "nombre_fix":"Crime Simulator - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2737070/b127c3a7a40ba1f9b4e82caa875b5185a3ee32e8/capsule_616x353.jpg?t=1752172165"
+   },
+   "2272540":{
+      "name":"FBC: Firebreak",
+      "nombre_fix":"FBC: Firebreak - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2272540/6760496418e25a08fa64c169799cc7fef8f1b7dd/capsule_616x353.jpg?t=1750276227"
+   },
+   "1623730":{
+      "name":"Palworld",
+      "nombre_fix":"Palworld - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1623730/c961ac047294838bfe382bf193ade5c64b19e573/capsule_616x353.jpg?t=1752129522"
+   },
+   "2787320":{
+      "name":"Revenge of the Savage Planet",
+      "nombre_fix":"Revenge of the Savage Planet - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2787320/capsule_616x353.jpg?t=1749799505"
+   },
+   "2993780":{
+      "name":"FANTASY LIFE i: The Girl Who Steals Time",
+      "nombre_fix":"FANTASY LIFE i: The Girl Who Steals Time - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2993780/b8bc78080305acb725a030e24f6022c7befaf10b/capsule_616x353.jpg?t=1749900924"
+   },
+   "513710":{
+      "name":"SCUM",
+      "nombre_fix":"SCUM - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/513710/c9c9b8c01d0394a24c9bc065ff67c92bb60a3938/capsule_616x353.jpg?t=1750430234"
+   },
+   "3533100":{
+      "name":"Wrap House Simulator",
+      "nombre_fix":"Wrap House Simulator - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3533100/2c59cbb813a08530b4034de691854cd506c69208/capsule_616x353.jpg?t=1753431998"
+   },
+   "1374490":{
+      "name":"RuneScape: Dragonwilds",
+      "nombre_fix":"RuneScape: Dragonwilds - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1374490/84f8f92eb245d7cbfdb6daed0eb9ee97c19c2000/capsule_616x353.jpg?t=1750069903"
+   },
+   "3125250":{
+      "name":"STORROR Parkour Pro",
+      "nombre_fix":"STORROR Parkour Pro - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3125250/9365aaaf12ca473defd3b0e7651c9f2ceec3da55/capsule_616x353.jpg?t=1743705248"
+   },
+   "2625420":{
+      "name":"Drive Beyond Horizons",
+      "nombre_fix":"Drive Beyond Horizons - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2625420/capsule_616x353.jpg?t=1746031041"
+   },
+   "1203190":{
+      "name":"Wreckfest 2",
+      "nombre_fix":"Wreckfest 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1203190/c8da9c394d1437e122f168e3ddf04a22fb43acb2/capsule_616x353.jpg?t=1751282742"
+   },
+   "1689620":{
+      "name":"BLEACH Rebirth of Souls",
+      "nombre_fix":"BLEACH Rebirth of Souls - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1689620/450a0b7df3751e2f01bfaa675a21f34b6298b974/capsule_616x353.jpg?t=1749592879"
+   },
+   "1340990":{
+      "name":"Rise of the Ronin",
+      "nombre_fix":"Rise of the Ronin - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1340990/708f3b2e479bbbe77e22190816151dd682f9172b/capsule_616x353.jpg?t=1749459550"
+   },
+   "3241660":{
+      "name":"R.E.P.O.",
+      "nombre_fix":"R.E.P.O. - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3241660/2cff5912c1add2e009eb1c1c630a47ac06cb81a1/capsule_616x353.jpg?t=1750949552"
+   },
+   "393380":{
+      "name":"Squad",
+      "nombre_fix":"Squad - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/393380/ad23025eadcd9c8a1281f3e8a8904308a9e61dd8/capsule_616x353.jpg?t=1748639190"
+   },
+   "242760":{
+      "name":"The Forest",
+      "nombre_fix":"The Forest - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/242760/capsule_616x353.jpg?t=1699381053"
+   },
+   "1326470":{
+      "name":"Sons Of The Forest",
+      "nombre_fix":"Sons Of The Forest - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1326470/capsule_616x353.jpg?t=1708624856"
+   },
+   "2300320":{
+      "name":"Farming Simulator 25",
+      "nombre_fix":"Farming Simulator 25 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2300320/capsule_616x353.jpg?t=1749803684"
+   },
+   "251570":{
+      "name":"7 Days to Die",
+      "nombre_fix":"7 Days to Die - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/251570/capsule_616x353.jpg?t=1750884786"
+   },
+   "526870":{
+      "name":"Satisfactory",
+      "nombre_fix":"Satisfactory - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/526870/290c413f4075e43a5d2e106dcbbaa036b3271621/capsule_616x353.jpg?t=1749717464"
+   },
+   "493520":{
+      "name":"GTFO",
+      "nombre_fix":"GTFO - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/493520/1f73e0a96f592c76f7140cce484901cc0baf5eca/capsule_616x353.jpg?t=1728027032"
+   },
+   "2646460":{
+      "name":"Soulmask",
+      "nombre_fix":"Soulmask - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2646460/afb5f419b5424c08f3ae47e066b9bcab8499e7d0/capsule_616x353.jpg?t=1753256816"
+   },
+   "739630":{
+      "name":"Phasmophobia",
+      "nombre_fix":"Phasmophobia - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/739630/capsule_616x353.jpg?t=1751054308"
+   },
+   "2881650":{
+      "name":"Content Warning",
+      "nombre_fix":"Content Warning - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2881650/capsule_616x353.jpg?t=1736717925"
+   },
+   "1384160":{
+      "name":"GUILTY GEAR -STRIVE",
+      "nombre_fix":"GUILTY GEAR -STRIVE - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1384160/f2f96f68e4405d870209121bdbb9025bf752cb7f/capsule_616x353.jpg?t=1748483857"
+   },
+   "1335830":{
+      "name":"Len's Island",
+      "nombre_fix":"Len's Island - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1335830/4e408d3391094a9c8eb589bd53bbc536d110d077/capsule_616x353.jpg?t=1751968500"
+   },
+   "284160":{
+      "name":"BeamNG.drive",
+      "nombre_fix":"BeamNG.drive - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/284160/capsule_616x353.jpg?t=1743607220"
+   },
+   "2999030":{
+      "name":"Exploding Kittens 2",
+      "nombre_fix":"Exploding Kittens 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2999030/821be9a55cbc7863392bf603e7ad0d178477d20e/capsule_616x353.jpg?t=1753371280"
+   },
+   "227300":{
+      "name":"Euro Truck Simulator 2",
+      "nombre_fix":"Euro Truck Simulator 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/227300/capsule_616x353.jpg?t=1750168417"
+   },
+   "270880":{
+      "name":"American Truck Simulator",
+      "nombre_fix":"American Truck Simulator - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/270880/capsule_616x353.jpg?t=1752167624"
+   },
+   "1066890":{
+      "name":"Automobilista 2",
+      "nombre_fix":"Automobilista 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1066890/capsule_616x353.jpg?t=1742042973"
+   },
+   "1307550":{
+      "name":"Craftopia",
+      "nombre_fix":"Craftopia - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1307550/capsule_616x353.jpg?t=1750302934"
+   },
+   "239140":{
+      "name":"Dying Light",
+      "nombre_fix":"Dying Light - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/239140/75644e31be5e0e57ac44a3e13468555fb21eb4ea/capsule_616x353.jpg?t=1751370984"
+   },
+   "534380":{
+      "name":"Dying Light 2: Reloaded Edition",
+      "nombre_fix":"Dying Light 2: Reloaded Edition - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/534380/bb99b9529e0585181f0c09fa6b9eff324dba0675/capsule_616x353.jpg?t=1739988558"
+   },
+   "997010":{
+      "name":"Police Simulator: Patrol Officers",
+      "nombre_fix":"Police Simulator: Patrol Officers - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/997010/capsule_616x353.jpg?t=1753171400"
+   },
+   "285900":{
+      "name":"Gang Beasts",
+      "nombre_fix":"Gang Beasts - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/285900/capsule_616x353.jpg?t=1732109683"
+   },
+   "2235200":{
+      "name":"Neon Abyss 2",
+      "nombre_fix":"Neon Abyss 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2235200/1fae7d1274ac9665e59277ecf563a3c0059b0de0/capsule_616x353.jpg?t=1753248564"
+   },
+   "588030":{
+      "name":"Derail Valley",
+      "nombre_fix":"Derail Valley - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/588030/capsule_616x353.jpg?t=1747663360"
+   },
+   "1931180":{
+      "name":"Lost Skies",
+      "nombre_fix":"Lost Skies - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1931180/937e33f988447d501c93f6e455dc17b5327caf88/capsule_616x353.jpg?t=1749557065"
+   },
+   "2440510":{
+      "name":"Forza Motorsport",
+      "nombre_fix":"Forza Motorsport - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2440510/capsule_616x353.jpg?t=1747073895"
+   },
+   "1551360":{
+      "name":"Forza Horizon 5",
+      "nombre_fix":"Forza Horizon 5 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1551360/capsule_616x353.jpg?t=1746471508"
+   },
+   "1293830":{
+      "name":"Forza Horizon 4",
+      "nombre_fix":"Forza Horizon 4 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1293830/capsule_616x353.jpg?t=1734336342"
+   },
+   "2788040":{
+      "name":"Another Try 2",
+      "nombre_fix":"Another Try 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2788040/capsule_616x353.jpg?t=1745619523"
+   },
+   "2800450":{
+      "name":"Planetaries",
+      "nombre_fix":"Planetaries - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2800450/capsule_616x353.jpg?t=1742224330"
+   },
+   "1672970":{
+      "name":"Minecraft Dungeons",
+      "nombre_fix":"Minecraft Dungeons - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1672970/capsule_616x353.jpg?t=1717003107"
+   },
+   "516750":{
+      "name":"My Summer Car",
+      "nombre_fix":"My Summer Car - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/516750/capsule_616x353.jpg?t=1736372299"
+   },
+   "962130":{
+      "name":"Grounded",
+      "nombre_fix":"Grounded - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/962130/capsule_616x353.jpg?t=1727719725"
+   },
+   "1149460":{
+      "name":"Icarus",
+      "nombre_fix":"Icarus - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1149460/capsule_616x353.jpg?t=1753143921"
+   },
+   "1284190":{
+      "name":"The Planet Crafter",
+      "nombre_fix":"The Planet Crafter - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1284190/0cb237d6b6c54c8a571a13dfbd5837398571084d/capsule_616x353.jpg?t=1748077331"
+   },
+   "648800":{
+      "name":"Raft",
+      "nombre_fix":"Raft - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/648800/capsule_616x353.jpg?t=1727184011"
+   },
+   "2406770":{
+      "name":"Bodycam",
+      "nombre_fix":"Bodycam - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2406770/76db1ded1096ef1195cf3f77532af1b60ab527d3/capsule_616x353.jpg?t=1750962796"
+   },
+   "313120":{
+      "name":"Stranded Deep",
+      "nombre_fix":"Stranded Deep - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/313120/capsule_616x353.jpg?t=1727731485"
+   },
+   "2248760":{
+      "name":"Car For Sale Simulator 2023",
+      "nombre_fix":"Car For Sale Simulator 2023 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2248760/12d1a322ff6e02bff73be56ab30ed701a02b42f7/capsule_616x353.jpg?t=1753985645"
+   },
+   "1158310":{
+      "name":"Crusader Kings III",
+      "nombre_fix":"Crusader Kings III - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1158310/capsule_616x353.jpg?t=1745933101"
+   },
+   "1660080":{
+      "name":"Aloft",
+      "nombre_fix":"Aloft - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1660080/6069fe15c6b3e47b26938124485519ab7ae1cfda/capsule_616x353.jpg?t=1753378614"
+   },
+   "3121110":{
+      "name":"Zort",
+      "nombre_fix":"Zort - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3121110/capsule_616x353.jpg?t=1741804510"
+   },
+   "1641960":{
+      "name":"Forever Skies",
+      "nombre_fix":"Forever Skies - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1641960/b5be7d2a898ee6e43eaa7dc81e059f612eeef2cc/capsule_616x353.jpg?t=1753885686"
+   },
+   "2835570":{
+      "name":"Buckshot Roulette",
+      "nombre_fix":"Buckshot Roulette - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2835570/capsule_616x353.jpg?t=1751896884"
+   },
+   "1190970":{
+      "name":"House Flipper 2",
+      "nombre_fix":"House Flipper 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1190970/a21c39496d6abc69cba4fd9ad78ab489b3f3b115/capsule_616x353.jpg?t=1752765762"
+   },
+   "1790600":{
+      "name":"DRAGON BALL: Sparking! ZERO",
+      "nombre_fix":"DRAGON BALL: Sparking! ZERO - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1790600/dd58a5788c333cf0ebb5743e32fb716448e28cb0/capsule_616x353.jpg?t=1753266072"
+   },
+   "2644470":{
+      "name":"PICO PARK 2",
+      "nombre_fix":"PICO PARK 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2644470/capsule_616x353.jpg?t=1726674876"
+   },
+   "500":{
+      "name":"Left 4 Dead",
+      "nombre_fix":"Left 4 Dead - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/500/capsule_616x353.jpg?t=1745368560"
+   },
+   "550":{
+      "name":"Left 4 Dead 2",
+      "nombre_fix":"Left 4 Dead 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/550/capsule_616x353.jpg?t=1745368562"
+   },
+   "1534840":{
+      "name":"Hyper Light Breaker",
+      "nombre_fix":"Hyper Light Breaker - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1534840/6260b05a582607fc5584a53b15823f6d01b7c33a/capsule_616x353.jpg?t=1745951553"
+   },
+   "1796470":{
+      "name":"Haste",
+      "nombre_fix":"Haste - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1796470/facaebeaca52dc14ae2a85d5a4f017947e9c3a87/capsule_616x353.jpg?t=1752241805"
+   },
+   "2399830":{
+      "name":"ARK: Survival Ascended",
+      "nombre_fix":"ARK: Survival Ascended - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2399830/capsule_616x353.jpg?t=1750290390"
+   },
+   "361420":{
+      "name":"ASTRONEER",
+      "nombre_fix":"ASTRONEER - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/361420/capsule_616x353.jpg?t=1744744143"
+   },
+   "218620":{
+      "name":"PAYDAY 2",
+      "nombre_fix":"PAYDAY 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/218620/capsule_616x353.jpg?t=1748420788"
+   },
+   "1272080":{
+      "name":"PAYDAY 3",
+      "nombre_fix":"PAYDAY 3 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1272080/capsule_616x353.jpg?t=1749715358"
+   },
+   "1448440":{
+      "name":"Wo Long: Fallen Dynasty",
+      "nombre_fix":"Wo Long: Fallen Dynasty - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1448440/dcb5987b4ea792958bc86ecc2887ac12318b904b/capsule_616x353.jpg?t=1751503287"
+   },
+   "1511630":{
+      "name":"TrackDayR",
+      "nombre_fix":"TrackDayR - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1511630/capsule_616x353.jpg?t=1742490610"
+   },
+   "108600":{
+      "name":"Project Zomboid",
+      "nombre_fix":"Project Zomboid - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/108600/capsule_616x353.jpg?t=1739309087"
+   },
+   "495420":{
+      "name":"State of Decay 2",
+      "nombre_fix":"State of Decay 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/495420/capsule_616x353.jpg?t=1741378867"
+   },
+   "2428810":{
+      "name":"LEGO Horizon Adventures",
+      "nombre_fix":"LEGO Horizon Adventures - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2428810/capsule_616x353.jpg?t=1750953443"
+   },
+   "1451810":{
+      "name":"LEGO 2K Drive",
+      "nombre_fix":"LEGO 2K Drive - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1451810/27d1221e7da1960b86e2b601495e1fc3efebc30a/capsule_616x353.jpg?t=1751037667"
+   },
+   "578330":{
+      "name":"LEGO City Undercover",
+      "nombre_fix":"LEGO City Undercover - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/578330/capsule_616x353.jpg?t=1745612336"
+   },
+   "213330":{
+      "name":"LEGO Batman 2: DC Super Heroes",
+      "nombre_fix":"LEGO Batman 2: DC Super Heroes - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/213330/capsule_616x353.jpg?t=1745962914"
+   },
+   "438640":{
+      "name":"LEGO STAR WARS The Force Awakens",
+      "nombre_fix":"LEGO STAR WARS The Force Awakens - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/438640/capsule_616x353.jpg?t=1745615896"
+   },
+   "920210":{
+      "name":"LEGO Star Wars The Skywalker Saga",
+      "nombre_fix":"LEGO Star Wars The Skywalker Saga - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/920210/capsule_616x353.jpg?t=1747346983"
+   },
+   "352400":{
+      "name":"LEGO Jurassic World",
+      "nombre_fix":"LEGO Jurassic World - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/352400/capsule_616x353.jpg?t=1745540350"
+   },
+   "647830":{
+      "name":"LEGO MARVEL Super Heroes 2",
+      "nombre_fix":"LEGO MARVEL Super Heroes 2 - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/647830/capsule_616x353.jpg?t=1745539515"
+   },
+   "332310":{
+      "name":"LEGO Worlds",
+      "nombre_fix":"LEGO Worlds - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/332310/capsule_616x353.jpg?t=1745540769"
+   },
+   "214510":{
+      "name":"LEGO The Lord of the Rings",
+      "nombre_fix":"LEGO The Lord of the Rings - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/214510/capsule_616x353.jpg?t=1729803813"
+   },
+   "214950":{
+      "name":"Total War: ROME II - Emperor Editio",
+      "nombre_fix":"Total War: ROME II - Emperor Editio - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/214950/capsule_616x353.jpg?t=1748526690"
+   },
+   "1154030":{
+      "name":"Titan Quest II",
+      "nombre_fix":"Titan Quest II - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1154030/capsule_616x353.jpg?t=1755288487"
+   },
+   "815370":{
+      "name":"Green Hell",
+      "nombre_fix":"Green Hell - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/815370/4a4325781844ab83154dbccdc59e1913cf5facfc/capsule_616x353.jpg?t=1752746520"
+   },
+   "602960":{
+      "name":"Barotrauma",
+      "nombre_fix":"Barotrauma - fix",
+      "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/602960/capsule_616x353.jpg?t=1750262405"
+   },
+      "2567870":{
+         "name":"Chained Together",
+         "nombre_fix":"Chained Together - fix",
+         "custom_images":"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2567870/capsule_616x353.jpg?t=1732288374"
+      }
+   }
