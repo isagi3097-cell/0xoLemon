@@ -1,4 +1,4 @@
-﻿# Normalize line endings to LF for all text files.
+# Normalize line endings to LF for all text files.
 # Ensures sha256 checks in check-gse-package.mjs and check-lua-steamkit-package.mjs
 # are consistent across platforms (prevents Windows CI LF->CRLF conversion).
 * text=auto eol=lf
