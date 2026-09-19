@@ -72,7 +72,6 @@
       "../steam_appids_mapping.json",
       "src/resources/cloud-save/**/*",
       "resources/cloud_redirect/**/*",
-      "resources/tools/**/*",
       "resources/redist/*.exe",
       "resources/redist/*.msi",
       "resources/redist/*.zip",
