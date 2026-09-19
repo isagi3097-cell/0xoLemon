@@ -251,11 +251,13 @@ jobs:
         shell: pwsh
         run: |
           $candidates = @(Get-ChildItem -Path "$PWD/src-tauri/target" -Directory -Recurse -Filter resources -ErrorAction SilentlyContinue)
-          $resourceDir = $candidates | Where-Object {
-            Test-Path (Join-Path $_.FullName "gse-uc") -PathType Container -and
-            Test-Path (Join-Path $_.FullName "redist") -PathType Container -and
-            Test-Path (Join-Path $_.FullName "tools") -PathType Container
-          } | Select-Object -Last 1
+          $resourceDir = $null
+          foreach ($c in $candidates) {
+            $hasGse    = Test-Path (Join-Path $c.FullName "gse-uc") -PathType Container
+            $hasRedist = Test-Path (Join-Path $c.FullName "redist") -PathType Container
+            $hasTools  = Test-Path (Join-Path $c.FullName "tools")  -PathType Container
+            if ($hasGse -and $hasRedist -and $hasTools) { $resourceDir = $c }
+          }
           if (-not $resourceDir) {
             throw "Packaged resource directory was not found under src-tauri/target"
           }
