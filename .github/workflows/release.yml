@@ -72,6 +72,66 @@ jobs:
             Write-Warning "No enabled HuggingFace repositories found in huggingface-repos.json"
           }
 
+      - name: Download native Steam hook release
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $repo = "isagi3097-cell/0xoLemon-plugin"
+          $headers = @{
+            Accept = "application/vnd.github+json"
+            "User-Agent" = "0xoLemon-launcher-release"
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+          }
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest" -Headers $headers
+          $asset = @($release.assets | Where-Object { $_.name -like "0xoLemon-plugin-*.7z" }) | Select-Object -First 1
+          if (-not $asset) {
+            throw "No 0xoLemon-plugin-*.7z asset found in latest plugin release $($release.tag_name)"
+          }
+
+          $archive = Join-Path $env:RUNNER_TEMP $asset.name
+          Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile $archive
+          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+            throw "Plugin archive download failed: $archive"
+          }
+
+          $extract = Join-Path $env:RUNNER_TEMP "0xoLemon-plugin-extracted"
+          if (Test-Path -LiteralPath $extract) {
+            Remove-Item -LiteralPath $extract -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path $extract | Out-Null
+
+          $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source
+          if (-not $sevenZip) {
+            $sevenZip = Join-Path ${env:ProgramFiles} "7-Zip/7z.exe"
+          }
+          if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
+            throw "7-Zip was not found on the GitHub runner"
+          }
+          & $sevenZip x $archive "-o$extract" -y
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to extract plugin archive $($asset.name)"
+          }
+
+          "PLUGIN_EXTRACT_DIR=$extract" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Downloaded plugin release $($release.tag_name): $($asset.name)"
+
+      - name: Stage native Steam hook resources
+        shell: pwsh
+        run: |
+          $source = $env:PLUGIN_EXTRACT_DIR
+          $destination = Join-Path $PWD "src-tauri/resources/steam_hooks"
+          $required = @("0xoCore.dll", "0xoPayload.dll", "dwmapi.dll", "xinput1_4.dll")
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+          foreach ($name in $required) {
+            $path = Join-Path $source $name
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Native Steam hook resource is missing: $path"
+            }
+            Copy-Item -LiteralPath $path -Destination (Join-Path $destination $name) -Force
+          }
+          Write-Host "Staged native Steam hook resources: $($required -join ', ')"
+
       - name: Build, sign, and publish release
         uses: tauri-apps/tauri-action@v1
         env:
@@ -83,7 +143,10 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: '0xoLemon ${{ github.ref_name }}'
           releaseBody: |
-            Signed 0xoLemon launcher release.
+            0xoLemon v2.0.67
+
+            - Uses the published 0xoLemon plugin package instead of compiling native hooks in launcher CI.
+            - Validates and stages all four required hook DLLs before the Tauri build.
 
             The release includes the Windows installer and `latest.json` manifest used by the in-app updater.
           releaseDraft: false
