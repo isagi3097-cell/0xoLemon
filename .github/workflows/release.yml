@@ -173,9 +173,17 @@ jobs:
             throw "Failed to extract DepotDownloaderMod release $($release.tag_name)"
           }
 
-          $entrypoint = Get-ChildItem -LiteralPath $extract -Recurse -File -Filter "DepotDownloaderMod.exe" | Select-Object -First 1
-          if (-not $entrypoint) {
+          $entrypoints = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter "DepotDownloaderMod.exe")
+          if ($entrypoints.Count -eq 0) {
             throw "DepotDownloaderMod.exe was not found in $($asset.name)"
+          }
+          $entrypoint = $entrypoints |
+            Where-Object { $_.Length -ge 10MB } |
+            Sort-Object Length -Descending |
+            Select-Object -First 1
+          if (-not $entrypoint) {
+            $details = ($entrypoints | ForEach-Object { "$($_.FullName) ($($_.Length) bytes)" }) -join "; "
+            throw "No self-contained DepotDownloaderMod.exe was found in $($asset.name). Candidates: $details"
           }
           $destination = Join-Path $PWD "src-tauri/binaries/DepotDownloaderMod-x86_64-pc-windows-msvc.exe"
           New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
@@ -183,7 +191,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $destination -PathType Leaf)) {
             throw "Failed to stage DepotDownloaderMod: $destination"
           }
-          Write-Host "Staged DepotDownloaderMod from $repo release $($release.tag_name): $destination"
+          Write-Host "Staged self-contained DepotDownloaderMod from $repo release $($release.tag_name): $destination ($($entrypoint.Length) bytes)"
 
       - name: Validate release resource inputs
         shell: pwsh
