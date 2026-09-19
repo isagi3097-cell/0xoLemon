@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "0xoLemon",
-  "version": "2.0.68",
+  "version": "2.0.69",
   "identifier": "com.0xolemon.launcher",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-lua-steamkit.ps1 && node scripts/check-lua-steamkit-package.mjs && powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/build-cloudredirect.ps1 -Configuration Release && powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/prepare-dependencies.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/build-gse-core.ps1 && node scripts/check-gse-package.mjs && npm run build",
+    "beforeBuildCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-lua-steamkit.ps1 && node scripts/check-lua-steamkit-package.mjs && powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/build-cloudredirect.ps1 -Configuration Release && powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/prepare-dependencies.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/build-gse-core.ps1 && node scripts/check-gse-package.mjs && npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-release-resources.ps1",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -71,16 +71,9 @@
       "../src/vendor/gse-uc-setup/THIRD_PARTY_NOTICES.md",
       "../steam_appids_mapping.json",
       "src/resources/cloud-save/**/*",
-      "resources/cloud_redirect/**/*",
-      "resources/tools/**/*",
       "resources/**/*",
-      "resources/lightning/*.json",
-      "resources/managed-runtime/catalog.json",
-      "resources/redist/*.exe",
-      "resources/redist/*.msi",
-      "resources/redist/*.zip",
-      "resources/redist/README.txt",
-      "vendor/cloudredirect/Version.props"
+      "vendor/cloudredirect/Version.props",
+      "binaries/**/*"
     ],
     "icon": [
       "icons/32x32.png",

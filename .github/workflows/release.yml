@@ -221,7 +221,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: '0xoLemon ${{ github.ref_name }}'
           releaseBody: |
-            0xoLemon v2.0.68
+            0xoLemon v2.0.69
 
             - Uses the published 0xoLemon plugin package instead of compiling native hooks in launcher CI.
             - Validates and stages all four required hook DLLs before the Tauri build.
@@ -232,6 +232,27 @@ jobs:
           updaterJsonPreferNsis: true
           retryAttempts: 3
           args: --target x86_64-pc-windows-msvc
+
+      - name: Verify packaged resource payload
+        shell: pwsh
+        run: |
+          $candidates = @(Get-ChildItem -Path "$PWD/src-tauri/target" -Directory -Recurse -Filter resources -ErrorAction SilentlyContinue)
+          $resourceDir = $candidates | Where-Object {
+            Test-Path (Join-Path $_.FullName "gse-uc") -PathType Container -and
+            Test-Path (Join-Path $_.FullName "redist") -PathType Container -and
+            Test-Path (Join-Path $_.FullName "tools") -PathType Container
+          } | Select-Object -Last 1
+          if (-not $resourceDir) {
+            throw "Packaged resource directory was not found under src-tauri/target"
+          }
+          $files = @(Get-ChildItem -LiteralPath $resourceDir.FullName -Recurse -File | Where-Object {
+            $_.FullName -notmatch '\\gse_tools\\generate_emu_config\\(_OUTPUT|out\.log)(\\|$)'
+          })
+          $bytes = [int64](($files | Measure-Object -Property Length -Sum).Sum)
+          if ($files.Count -lt 1900 -or $bytes -lt 820MB) {
+            throw "Packaged resource payload is unexpectedly small: $($files.Count) files, $bytes bytes at $($resourceDir.FullName)"
+          }
+          Write-Host "Packaged resources validated: $($files.Count) files, $bytes bytes at $($resourceDir.FullName)"
 
 
   build-android:
