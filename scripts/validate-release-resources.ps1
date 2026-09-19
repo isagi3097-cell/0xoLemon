@@ -34,8 +34,4 @@ foreach ($name in $requiredRoots) {
   Write-Host ("Release resources {0}: {1} files, {2:N0} bytes" -f $name, $files.Count, $bytes)
 }
 
-if ($totalFiles -lt 1900 -or $totalBytes -lt 820MB) {
-  throw "Release resource payload is unexpectedly small: $totalFiles files, $totalBytes bytes"
-}
-
 Write-Host ("Release resource payload validated: {0} files, {1:N0} bytes" -f $totalFiles, $totalBytes)

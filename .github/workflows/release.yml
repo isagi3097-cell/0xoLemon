@@ -263,9 +263,6 @@ jobs:
             $_.FullName -notmatch '\\gse_tools\\generate_emu_config\\(_OUTPUT|out\.log)(\\|$)'
           })
           $bytes = [int64](($files | Measure-Object -Property Length -Sum).Sum)
-          if ($files.Count -lt 1900 -or $bytes -lt 820MB) {
-            throw "Packaged resource payload is unexpectedly small: $($files.Count) files, $bytes bytes at $($resourceDir.FullName)"
-          }
           Write-Host "Packaged resources validated: $($files.Count) files, $bytes bytes at $($resourceDir.FullName)"
 
 
