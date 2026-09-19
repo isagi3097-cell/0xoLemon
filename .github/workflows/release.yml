@@ -140,7 +140,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "git clone DepotDownloaderMod failed" }
           $proj = Join-Path $src "DepotDownloader/DepotDownloaderMod.csproj"
           $out  = Join-Path $env:RUNNER_TEMP "ddmod-publish"
-          dotnet publish $proj -c Release --self-contained true -r win-x64 -o $out /p:ApplicationIcon="" /p:TreatWarningsAsErrors=false
+          dotnet publish $proj -c Release --self-contained true -r win-x64 -o $out /p:PublishSingleFile=true /p:ApplicationIcon="" /p:TreatWarningsAsErrors=false
           if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXITCODE" }
           $exe  = Join-Path $out "DepotDownloaderMod.exe"
           if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
