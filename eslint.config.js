@@ -14,6 +14,14 @@ export default defineConfig([
     'worker/node_modules',
     'worker/dist',
     'worker/worker-configuration.d.ts',
+    // Local backup/scratch trees: not part of the repo, but present on disk.
+    // They carry their own tsconfig.json files, which otherwise break the parser.
+    '.bak/**',
+    '.tmp-*/**',
+    'downloads/**',
+    'downloading/**',
+    'patch_test/**',
+    'testnehubcap/**',
   ]),
   {
     files: ['**/*.{ts,tsx}'],
